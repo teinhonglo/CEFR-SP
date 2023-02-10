@@ -1,5 +1,6 @@
 import random
-
+import os
+import json
 import tqdm
 import torch, glob, os, argparse
 from torch.utils.data import DataLoader
@@ -10,7 +11,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 import numpy as np
 from util import eval_multiclass, read_corpus, convert_numeral_to_eight_levels
-from model import LevelEstimaterClassification, LevelEstimaterContrastive, LevelEstimaterContrastivePcc
+from model import LevelEstimaterClassification, LevelEstimaterContrastive
 from baseline import BaselineClassification
 from model_base import CEFRDataset
 
@@ -24,7 +25,7 @@ parser.add_argument('--num_prototypes', help='number of prototypes', type=int, d
 parser.add_argument('--model', help='Pretrained model', type=str, default='bert-base-cased')
 parser.add_argument('--pretrained', help='Pretrained level estimater', type=str, default=None)
 parser.add_argument('--type', help='Level estimater type', type=str, required=True,
-                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'contrastive', 'contrastive_pcc'])
+                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'contrastive'])
 parser.add_argument('--with_loss_weight', action='store_true')
 parser.add_argument('--do_lower_case', action='store_true')
 parser.add_argument('--lm_layer', help='number of attention heads', type=int, default=-1)
@@ -42,9 +43,16 @@ parser.add_argument('--CEFR_lvs', help='number of CEFR levels', type=int, defaul
 parser.add_argument('--score_name', help='score_name for predict and train', type=str, default="vocabulary")
 parser.add_argument('--with_ib', action='store_true')
 parser.add_argument('--attach_wlv', action='store_true')
-parser.add_argument('--monitor', default='val_loss', type=str)
+parser.add_argument('--monitor', default='val_score', type=str)
+parser.add_argument('--monitor_mode', default='max', type=str)
 parser.add_argument('--exp_dir', default='', type=str)
+parser.add_argument('--dropout_rate', default=0.1, type=float)
 parser.add_argument('--max_seq_length', default=510, type=int)
+parser.add_argument('--use_layernorm', action='store_true')
+parser.add_argument('--use_prediction_head', action='store_true')
+parser.add_argument('--use_pretokenizer', action='store_true')
+parser.add_argument('--loss_type', default='cross_entropy', type=str)
+parser.add_argument('--accumulate_grad_batches', default=1, type=int)
 
 ####################################################################
 args = parser.parse_args()
@@ -76,7 +84,7 @@ if __name__ == '__main__':
         monitor=args.monitor,
         filename="level_estimator-{epoch:02d}-{" + args.monitor + ":.6f}",
         save_top_k=1,
-        mode="min",
+        mode=args.monitor_mode
     )
     # Early stopping callback
     early_stop_callback = EarlyStopping(
@@ -84,7 +92,7 @@ if __name__ == '__main__':
         min_delta=1e-5,
         patience=10,
         verbose=False,
-        mode='min'
+        mode=args.monitor_mode
     )
     # swa_callback = StochasticWeightAveraging(swa_epoch_start=3)
     lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -105,85 +113,123 @@ if __name__ == '__main__':
             lv_estimater = LevelEstimaterClassification.load_from_checkpoint(args.pretrained, corpus_path=args.data,
                                                                              test_corpus_path=args.test,
                                                                              pretrained_model=args.model,
+                                                                             problem_type=args.type, 
                                                                              with_ib=args.with_ib,
                                                                              with_loss_weight=args.with_loss_weight,
                                                                              attach_wlv=args.attach_wlv,
                                                                              num_labels=args.num_labels,
                                                                              word_num_labels=args.word_num_labels,
-                                                                             alpha=args.alpha, ib_beta=args.ib_beta,
+                                                                             alpha=args.alpha, 
+                                                                             ib_beta=args.ib_beta,
                                                                              batch_size=args.batch,
                                                                              learning_rate=args.init_lr,
                                                                              warmup=args.warmup,
-                                                                             lm_layer=args.lm_layer, args=args)
+                                                                             lm_layer=args.lm_layer, 
+                                                                             args=args)
         else:
-            lv_estimater = LevelEstimaterClassification(args.data, args.test, args.model, args.type, args.with_ib,
-                                                    args.with_loss_weight, args.attach_wlv,
-                                                    args.num_labels,
-                                                    args.word_num_labels,
-                                                    args.alpha, args.ib_beta, args.batch,
-                                                    args.init_lr,
-                                                    args.warmup,
-                                                    args.lm_layer, args)
+            lv_estimater = LevelEstimaterClassification(corpus_path=args.data, 
+                                                    test_corpus_path=args.test, 
+                                                    pretrained_model=args.model, 
+                                                    problem_type=args.type, 
+                                                    with_ib=args.with_ib,
+                                                    with_loss_weight=args.with_loss_weight, 
+                                                    attach_wlv=args.attach_wlv,
+                                                    num_labels=args.num_labels,
+                                                    word_num_labels=args.word_num_labels,
+                                                    alpha=args.alpha, 
+                                                    ib_beta=args.ib_beta, 
+                                                    batch_size=args.batch,
+                                                    learning_rate=args.init_lr,
+                                                    warmup=args.warmup,
+                                                    lm_layer=args.lm_layer, 
+                                                    args=args)
+
+    elif args.type in ['classification_admsoftmax']:
+        if args.pretrained is not None:
+            lv_estimater = LevelEstimaterClassificationADMSoftmax.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+                                                                             test_corpus_path=args.test,
+                                                                             pretrained_model=args.model,
+                                                                             problem_type=args.type, 
+                                                                             with_ib=args.with_ib,
+                                                                             with_loss_weight=args.with_loss_weight,
+                                                                             attach_wlv=args.attach_wlv,
+                                                                             num_labels=args.num_labels,
+                                                                             word_num_labels=args.word_num_labels,
+                                                                             alpha=args.alpha, 
+                                                                             ib_beta=args.ib_beta,
+                                                                             batch_size=args.batch,
+                                                                             learning_rate=args.init_lr,
+                                                                             warmup=args.warmup,
+                                                                             lm_layer=args.lm_layer, 
+                                                                             args=args)
+        else:
+            lv_estimater = LevelEstimaterClassificationADMSoftmax(corpus_path=args.data, 
+                                                    test_corpus_path=args.test, 
+                                                    pretrained_model=args.model, 
+                                                    problem_type=args.type, 
+                                                    with_ib=args.with_ib,
+                                                    with_loss_weight=args.with_loss_weight, 
+                                                    attach_wlv=args.attach_wlv,
+                                                    num_labels=args.num_labels,
+                                                    word_num_labels=args.word_num_labels,
+                                                    alpha=args.alpha, 
+                                                    ib_beta=args.ib_beta, 
+                                                    batch_size=args.batch,
+                                                    learning_rate=args.init_lr,
+                                                    warmup=args.warmup,
+                                                    lm_layer=args.lm_layer, 
+                                                    args=args)
 
     elif args.type == 'contrastive':
         if args.pretrained is not None:
             lv_estimater = LevelEstimaterContrastive.load_from_checkpoint(args.pretrained, corpus_path=args.data,
                                                                           test_corpus_path=args.test,
                                                                           pretrained_model=args.model,
+                                                                          problem_type=args.type,
                                                                           with_ib=args.with_ib,
                                                                           with_loss_weight=args.with_loss_weight,
                                                                           attach_wlv=args.attach_wlv,
                                                                           num_labels=args.num_labels,
                                                                           word_num_labels=args.word_num_labels,
                                                                           num_prototypes=args.num_prototypes,
-                                                                          alpha=args.alpha, ib_beta=args.ib_beta,
+                                                                          alpha=args.alpha, 
+                                                                          ib_beta=args.ib_beta,
                                                                           batch_size=args.batch,
                                                                           learning_rate=args.init_lr,
-                                                                          warmup=args.warmup, lm_layer=args.lm_layer, args=args)
+                                                                          warmup=args.warmup, 
+                                                                          lm_layer=args.lm_layer, 
+                                                                          args=args)
         else:
-            lv_estimater = LevelEstimaterContrastive(args.data, args.test, args.model, args.type, args.with_ib,
-                                                 args.with_loss_weight, args.attach_wlv,
-                                                 args.num_labels,
-                                                 args.word_num_labels,
-                                                 args.num_prototypes,
-                                                 args.alpha, args.ib_beta, args.batch,
-                                                 args.init_lr,
-                                                 args.warmup,
-                                                 args.lm_layer, args)
+            lv_estimater = LevelEstimaterContrastive(corpus_path=args.data, 
+                                                 test_corpus_path=args.test, 
+                                                 pretrained_model=args.model, 
+                                                 problem_type=args.type, 
+                                                 with_ib=args.with_ib,
+                                                 with_loss_weight=args.with_loss_weight, 
+                                                 attach_wlv=args.attach_wlv,
+                                                 num_labels=args.num_labels,
+                                                 word_num_labels=args.word_num_labels,
+                                                 num_prototypes=args.num_prototypes,
+                                                 alpha=args.alpha, 
+                                                 ib_beta=args.ib_beta, 
+                                                 batch_size=args.batch,
+                                                 learning_rate=args.init_lr,
+                                                 warmup=args.warmup,
+                                                 lm_layer=args.lm_layer, 
+                                                 args=args)
     
-    elif args.type == 'contrastive_pcc':
-        if args.pretrained is not None:
-            lv_estimater = LevelEstimaterContrastivePcc.load_from_checkpoint(args.pretrained, corpus_path=args.data,
-                                                                          test_corpus_path=args.test,
-                                                                          pretrained_model=args.model,
-                                                                          with_ib=args.with_ib,
-                                                                          with_loss_weight=args.with_loss_weight,
-                                                                          attach_wlv=args.attach_wlv,
-                                                                          num_labels=args.num_labels,
-                                                                          word_num_labels=args.word_num_labels,
-                                                                          num_prototypes=args.num_prototypes,
-                                                                          alpha=args.alpha, ib_beta=args.ib_beta,
-                                                                          batch_size=args.batch,
-                                                                          learning_rate=args.init_lr,
-                                                                          warmup=args.warmup, lm_layer=args.lm_layer, args=args)
-        else:
-            lv_estimater = LevelEstimaterContrastivePcc(args.data, args.test, args.model, args.type, args.with_ib,
-                                                 args.with_loss_weight, args.attach_wlv,
-                                                 args.num_labels,
-                                                 args.word_num_labels,
-                                                 args.num_prototypes,
-                                                 args.alpha, args.ib_beta, args.batch,
-                                                 args.init_lr,
-                                                 args.warmup,
-                                                 args.lm_layer, args)
 
     if args.pretrained is not None:
-        trainer = pl.Trainer(gpus=gpus, logger=logger, max_epochs=args.max_epochs)
+        trainer = pl.Trainer(gpus=gpus, logger=logger)
         trainer.test(lv_estimater)
     else:
         # w/o learning rate tuning
-        trainer = pl.Trainer(gpus=gpus, logger=logger, val_check_interval=args.val_check_interval, max_epochs=args.max_epochs,
-                             callbacks=[checkpoint_callback, early_stop_callback, lr_monitor])
+        trainer = pl.Trainer(gpus=gpus, 
+                            logger=logger, 
+                            val_check_interval=args.val_check_interval, 
+                            max_epochs=args.max_epochs,
+                            accumulate_grad_batches=args.accumulate_grad_batches, 
+                            callbacks=[checkpoint_callback, early_stop_callback, lr_monitor])
         trainer.fit(lv_estimater)
 
         # automatically loads the best weights for you

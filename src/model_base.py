@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import f1_score
 from util import mean_pooling, token_embeddings_filtering_padding, read_corpus, CEFRDataset, eval_multiclass
+import stanza
 
 class LevelEstimaterBase(pl.LightningModule):
     def __init__(self, corpus_path, test_corpus_path, pretrained_model, with_ib, attach_wlv,
@@ -20,7 +21,7 @@ class LevelEstimaterBase(pl.LightningModule):
         self.CEFR_lvs = args.CEFR_lvs
 
         if attach_wlv and with_ib:
-            raise Exception('Information bottleneck and word labels cannot be used together!')
+            raise Exception('Information bottleneck and word labels cannot be used together!') 
 
         self.corpus_path = corpus_path
         self.test_corpus_path = test_corpus_path
@@ -38,11 +39,15 @@ class LevelEstimaterBase(pl.LightningModule):
         self.do_lower_case = args.do_lower_case
         self.max_seq_length = args.max_seq_length
         self.special_tokens_count = 2
+        self.use_pretokenizer = args.use_pretokenizer
 
         # Load pre-trained model
         self.load_pretrained_lm()
 
     def load_pretrained_lm(self):
+        if self.use_pretokenizer:
+            self.pre_tokenizer = stanza.Pipeline(lang='en', processors='tokenize', use_gpu=True)
+        
         if 'roberta' in self.pretrained_model:
             self.tokenizer = AutoTokenizer.from_pretrained(self.pretrained_model, add_prefix_space=True, do_lower_case=self.do_lower_case, max_length=self.max_seq_length, truncation=True)
         else:
@@ -50,14 +55,13 @@ class LevelEstimaterBase(pl.LightningModule):
         self.lm = AutoModel.from_pretrained(self.pretrained_model)
 
     def precompute_loss_weights(self, epsilon=1e-5):
-        train_levels_a, train_levels_b, _ = read_corpus(self.corpus_path + '/train.tsv', self.num_labels, self.score_name)
-        train_levels = np.concatenate((train_levels_a, train_levels_b[train_levels_b != train_levels_a]))
+        train_levels, _ = read_corpus(self.corpus_path + '/train.tsv', self.num_labels, self.score_name)
 
         train_sentlv_ratio = np.array([np.sum(train_levels == lv) for lv in range(self.CEFR_lvs)])
         train_sentlv_ratio = train_sentlv_ratio / np.sum(train_sentlv_ratio)
         train_sentlv_weights = np.power(train_sentlv_ratio, self.alpha) / np.sum(
             np.power(train_sentlv_ratio, self.alpha)) / (train_sentlv_ratio + epsilon)
-
+        print("Loss Weight: ", train_sentlv_weights)
         return torch.Tensor(train_sentlv_weights)
 
     def encode(self, batch):
@@ -86,20 +90,15 @@ class LevelEstimaterBase(pl.LightningModule):
         return gold_labels
 
     def evaluation(self, outputs, test=False):
-        pred_labels, gold_labels_low, gold_labels_high = [], [], []
+        pred_labels, gold_labels = [], []
         for output in outputs:
-            gold_labels_low += output['gold_labels_low'].tolist()
-            gold_labels_high += output['gold_labels_high'].tolist()
+            gold_labels += output['gold_labels'].tolist()
             pred_labels += output['pred_labels'].tolist()
+        print(gold_labels)
+        print(pred_labels)
 
-        gold_labels_high = np.array(gold_labels_high)
-        gold_labels_low = np.array(gold_labels_low)
+        gold_labels = np.array(gold_labels)
         pred_labels = np.array(pred_labels)
-
-        # pick higher or lower labels that the model performs better
-        gold_labels = self.get_gold_labels(torch.from_numpy(pred_labels), torch.from_numpy(gold_labels_low),
-                                           torch.from_numpy(gold_labels_high))
-        gold_labels = gold_labels.numpy()
 
         eval_score = f1_score(gold_labels, pred_labels, average='macro')
         logs = {"score": eval_score}
@@ -127,48 +126,62 @@ class LevelEstimaterBase(pl.LightningModule):
             return optimizer
 
     def prepare_data(self):
-        self.train_levels_a, self.train_levels_b, self.train_sents = read_corpus(
-            self.corpus_path + '/train.tsv', self.num_labels, self.score_name)
-        self.dev_levels_a, self.dev_levels_b, self.dev_sents = read_corpus(
+        self.train_levels, self.train_info = read_corpus(
+            self.corpus_path + '/train.tsv', self.num_labels, self.score_name) 
+
+        if self.use_pretokenizer:
+            self.train_info["sents"] = [self.do_pretokenize(s) for s in self.train_info["sents"]]
+        self.train_sents = self.train_info["sents"]
+        
+        self.dev_levels, self.dev_info = read_corpus(
             self.corpus_path + '/valid.tsv', self.num_labels, self.score_name)
-        self.test_levels_a, self.test_levels_b, self.test_sents = read_corpus(
+        if self.use_pretokenizer:
+            self.dev_info["sents"] = [self.do_pretokenize(s) for s in self.dev_info["sents"]]
+        self.dev_sents = self.dev_info["sents"]
+        
+        self.test_levels, self.test_info = read_corpus(
             self.test_corpus_path + '/test.tsv', self.num_labels, self.score_name)
+        if self.use_pretokenizer:
+            self.test_info["sents"] = [self.do_pretokenize(s) for s in self.test_info["sents"]]            
+        self.test_sents = self.test_info["sents"]
 
     # return the dataloader for each split
     def train_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
-        y_sent_a = torch.tensor(self.train_levels_a, dtype=data_type).unsqueeze(1)
-        y_sent_b = torch.tensor(self.train_levels_b, dtype=data_type).unsqueeze(1)
+        y_sent = torch.tensor(self.train_levels, dtype=data_type).unsqueeze(1)
         inputs = self.my_tokenize(self.train_sents)
         
-        return DataLoader(CEFRDataset(inputs, y_sent_a, y_sent_b), batch_size=self.batch_size, shuffle=True)
+        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
-        y_sent_a = torch.tensor(self.dev_levels_a, dtype=data_type).unsqueeze(1)
-        y_sent_b = torch.tensor(self.dev_levels_b, dtype=data_type).unsqueeze(1)
+        y_sent = torch.tensor(self.dev_levels, dtype=data_type).unsqueeze(1)
         inputs = self.my_tokenize(self.dev_sents)
 
-        return DataLoader(CEFRDataset(inputs, y_sent_a, y_sent_b), batch_size=self.batch_size, shuffle=False)
+        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
 
     def test_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
-        y_sent_a = torch.tensor(self.test_levels_a, dtype=data_type).unsqueeze(1)
-        y_sent_b = torch.tensor(self.test_levels_b, dtype=data_type).unsqueeze(1)
+        y_sent = torch.tensor(self.test_levels, dtype=data_type).unsqueeze(1)
         inputs = self.my_tokenize(self.test_sents)
 
-        return DataLoader(CEFRDataset(inputs, y_sent_a, y_sent_b), batch_size=self.batch_size, shuffle=False)
+        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
 
     def my_tokenize(self, sents):
         max_seq_length = self.max_seq_length
         special_tokens_count = self.special_tokens_count
         
         for sent_idx, sent in enumerate(sents):
+
             tokens = []
             for i, word in enumerate(sent):
                 if len(tokens) >= max_seq_length - special_tokens_count:
                     break
                 word_pieces = self.tokenizer.tokenize(word)
+
+                if self.use_pretokenizer and len(word_pieces) > 1:
+                    word_pieces = ["[UNK]"]
+
                 tokens.extend(word_pieces)
                 
             if len(tokens) > max_seq_length - special_tokens_count:
@@ -181,25 +194,8 @@ class LevelEstimaterBase(pl.LightningModule):
                                 return_offsets_mapping=True)
         return inputs
 
-    def retokenize_with_wordlvs(self, sents, wlvs):
-        wlv_sequences = [[self.word_lv_dic[lv] for lv in wlv_list if lv >= 0 and lv < self.word_num_labels] for wlv_list
-                         in
-                         wlvs.clone().detach().numpy()]
-        inputs = self.tokenizer(sents, text_pair=wlv_sequences, return_tensors="pt", padding=True,
-                                is_split_into_words=True,
-                                return_offsets_mapping=True)
-        return inputs
-
-    def wordlabel_to_tokenlabel(self, all_token_ids, all_offsets_mapping, labels):
-        token_labels = torch.zeros_like(all_token_ids)
-        for sid in range(all_token_ids.shape[0]):
-            wid = -1
-            for i, offset in enumerate(all_offsets_mapping[sid]):
-                if offset[1] == 0:  # Special tokens like CLS, PAD # Faster but cannot handle self-added [SEP] token
-                # if all_token_ids[sid][i] in self.tokenizer.all_special_ids: # Special tokens like CLS, PAD: Much slower
-                    token_labels[sid, i] = -1
-                    continue
-                if offset[0] == 0:  # New word starts
-                    wid += 1
-                token_labels[sid, i] = labels[sid][wid]
-        return token_labels
+    def do_pretokenize(self, ori_sent):
+        text = " ".join(ori_sent)
+        doc = self.pre_tokenizer(text.lower())
+        tokens = [ token.text for sent in doc.sentences for token in sent.tokens ]
+        return tokens

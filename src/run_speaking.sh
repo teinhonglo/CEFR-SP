@@ -17,14 +17,16 @@ model_path=bert-base-uncased
 max_score=8
 max_seq_length=512
 max_epochs=-1
-alpha=0.2
+alpha=0.5
 num_prototypes=3
 monitor="train_loss"
+monitor_mode="min"
 model_type=contrastive
 do_loss_weight=true
 do_lower_case=true
 init_lr=5.0e-5
 batch_size=8
+accumulate_grad_batches=4
 
 extra_options=
 
@@ -68,7 +70,7 @@ if [ "$max_epochs" != "-1" ]; then
 fi
 
 model_name=`echo $model_path | sed -e 's/\//-/g'`
-exp_tag=${exp_tag}_${model_name}_${monitor}_b${batch_size}_lr${init_lr}
+exp_tag=${exp_tag}_${model_name}_${monitor}-${monitor_mode}_b${batch_size}g${accumulate_grad_batches}_lr${init_lr}
 
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then       
     for sn in $score_names; do
@@ -77,20 +79,24 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
             exp_dir=$exp_tag/$sn/$fd
             if [ -d $exp_root/$exp_tag/$sn/$fd/version_1 ]; then
                 echo "$exp_root/$exp_tag/$sn/$fd/version_1 is already existed. Exit!" 
-                exit 0;
+                continue;
             else
-                rm -rf  $exp_root/$exp_tag/$sn/$fd/version_0
+                rm -rf $exp_root/$exp_tag/$sn/$fd/version_*
             fi
+            
             python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
                                       --monitor $monitor \
+                                      --monitor_mode $monitor_mode \
+                                      --out $exp_root \
                                       --exp_dir $exp_dir \
                                       --score_name $sn \
                                       --batch $batch_size --warmup 0 \
+                                      --accumulate_grad_batches $accumulate_grad_batches \
                                       --num_prototypes $num_prototypes --type ${model_type} --init_lr $init_lr \
-                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd --out $exp_root
+                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd 
         done
     done
 fi
@@ -115,9 +121,11 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
                                       --monitor $monitor \
+                                      --monitor_mode $monitor_mode \
                                       --exp_dir $exp_dir \
                                       --score_name $sn \
                                       --batch $batch_size --warmup 0 \
+                                      --accumulate_grad_batches $accumulate_grad_batches \
                                       --num_prototypes $num_prototypes --type ${model_type} --init_lr $init_lr \
                                       --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd --out $exp_root --pretrained $checkpoint_path
 

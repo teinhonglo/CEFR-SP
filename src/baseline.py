@@ -32,20 +32,20 @@ class BaselineClassification(LevelEstimaterBase):
     def forward(self, inputs):
         # in lightning, forward defines the prediction/inference actions
         outputs, _ = self.encode(inputs)
-        outputs_mean = mean_pooling(outputs, attention_mask=inputs['attention_mask'])
-        logits = self.slv_classifier(self.dropout(outputs_mean))
+        outputs = mean_pooling(outputs, attention_mask=inputs['attention_mask'])
+        logits = self.slv_classifier(self.dropout(outputs))
 
         loss = None
-        if inputs['slabels_high'] is not None:
-            if self.problem_type == 'baseline_reg':
-                labels = (inputs['slabels_high'] + inputs['slabels_low']) / 2
-                loss = self.loss_fct(logits.squeeze(), labels.squeeze())
+        if 'labels' in inputs:
+            if self.problem_type == "baseline_reg":
+                labels = inputs['labels']
+                cls_loss = self.loss_fct(logits.squeeze(), labels.squeeze())
             else:
-                labels = self.get_gold_labels(inputs['slabels_low'].detach().clone(), inputs['slabels_high'].detach().clone())
-                loss = self.loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                labels = inputs['labels'].detach().clone()
+                cls_loss = self.loss_fct(logits.view(-1, self.CEFR_lvs), labels.view(-1))
             logs = {"loss": loss}
 
-        if self.problem_type == "regression":
+        if self.problem_type == "baseline_reg":
             predictions = convert_numeral_to_eight_levels(logits.cpu().detach().clone().numpy())
         else:
             predictions = torch.argmax(torch.softmax(logits.detach().clone(), dim=1), dim=1, keepdim=True).cpu().numpy()
@@ -59,9 +59,8 @@ class BaselineClassification(LevelEstimaterBase):
     def _shared_eval_step(self, batch):
         loss, predictions, logs = self.forward(batch)
 
-        gold_labels_low = batch['slabels_low'].cpu().detach().clone().numpy()
-        gold_labels_high = batch['slabels_high'].cpu().detach().clone().numpy()
-        golds_predictions = {'gold_labels_low': gold_labels_low, 'gold_labels_high': gold_labels_high,
+        gold_labels = batch['labels'].cpu().detach().clone().numpy()
+        golds_predictions = {'gold_labels': gold_labels,
                              'pred_labels': predictions}
 
         return logs, golds_predictions

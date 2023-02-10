@@ -21,19 +21,17 @@ class TextDataset(torch.utils.data.Dataset):
         return self.data_len
 
 class CEFRDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, sent_levels_a, sent_levels_b):
+    def __init__(self, encodings, levels):
         self.encodings = encodings
-        self.slabels_low = np.minimum(sent_levels_a, sent_levels_b)
-        self.slabels_high = np.maximum(sent_levels_a, sent_levels_b)
+        self.labels = levels
 
     def __getitem__(self, idx):
         item = {key: val[idx].clone().detach() for key, val in self.encodings.items()}
-        item['slabels_low'] = self.slabels_low[idx].clone().detach()
-        item['slabels_high'] = self.slabels_high[idx].clone().detach()
+        item['labels'] = self.labels[idx].clone().detach()
         return item
 
     def __len__(self):
-        return len(self.slabels_high)
+        return len(self.labels)
 
 
 class ConcatDataset(torch.utils.data.Dataset):
@@ -48,21 +46,32 @@ class ConcatDataset(torch.utils.data.Dataset):
 
 
 def read_corpus(path, num_labels, score_name):
-    levels_a, levels_b, sents = [], [], []
+    ids, levels, sents, wav_paths, extra_embs = [], [], [], [], []
+
     lines = _read_tsv(path)
     for i, line in enumerate(lines):
         if i == 0:
             columns = {key:header_index for header_index, key in enumerate(line)}
             continue
         
-        sents.append(line[columns['text']].split())
-        levels_a.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
-        levels_b.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
+        wav_path_list = line[columns['wav_path']].split(" | ")
+        text_list = line[columns['text']].split(" | ") 
+       
+        for j in range(len(text_list)):
+            # remove a leading- or tailing-space of the utterance.
+            wav_path = " ".join(wav_path_list[j].split())
+            text = " ".join(text_list[j].split()).split()
+            
+            ids.append(line[columns["text_id"]])
+            levels.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
+            sents.append(text)
+            wav_paths.append(wav_path)
+            extra_embs.append(wav_path)
 
-    levels_a = np.array(levels_a)
-    levels_b = np.array(levels_b)
+    levels = np.array(levels)
 
-    return levels_a, levels_b, sents
+    return levels, {"ids": ids, "sents": sents, "wav_paths": wav_paths, "extra_embs": extra_embs}
+
 
 def _read_tsv(input_file, quotechar=None):
     print(input_file)

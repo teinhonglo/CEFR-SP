@@ -97,7 +97,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
                 rm -rf $exp_root/$exp_tag/$sn/$fd/version_1
             fi
 
-            echo "$part $sn $fd"
+            echo "$sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
             python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
@@ -115,7 +115,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     done 
 fi
 
-if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then  
+if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then  
     runs_root=$exp_root
     python local/speaking_predictions_to_report.py  --data_dir $data_dir \
                                                     --result_root $runs_root/$exp_tag \
@@ -125,7 +125,7 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
     
 fi
 
-if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then  
+if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then  
     runs_root=$exp_root
     echo $runs_root/$exp_tag
     python local/visualization.py   --result_root $runs_root/$exp_tag \
