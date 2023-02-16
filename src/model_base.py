@@ -4,9 +4,9 @@ from torch import nn
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from transformers import AutoTokenizer, AutoModel
-from sklearn.metrics import f1_score
 from util import mean_pooling, token_embeddings_filtering_padding, read_corpus, CEFRDataset, eval_multiclass
 import stanza
+from metrics_np import compute_metrics
 
 class LevelEstimaterBase(pl.LightningModule):
     def __init__(self, corpus_path, test_corpus_path, pretrained_model, with_ib, attach_wlv,
@@ -67,6 +67,9 @@ class LevelEstimaterBase(pl.LightningModule):
     def encode(self, batch):
         outputs = self.lm(batch['input_ids'], attention_mask=batch['attention_mask'], output_hidden_states=True)
         return outputs.hidden_states[self.lm_layer], None
+    
+    def encode_emds(self, batch):
+        return batch["extra_embs"]
 
     def forward(self, inputs):
         pass
@@ -80,28 +83,24 @@ class LevelEstimaterBase(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         pass
 
-    def get_gold_labels(self, predictions, lower_labels, higher_labels):
-        if torch.sum(predictions == lower_labels) >= torch.sum(predictions == higher_labels):
-            gold_labels = lower_labels
-            gold_labels[predictions == higher_labels] = higher_labels[predictions == higher_labels]
-        else:
-            gold_labels = higher_labels
-            gold_labels[predictions == lower_labels] = lower_labels[predictions == lower_labels]
-        return gold_labels
-
     def evaluation(self, outputs, test=False):
         pred_labels, gold_labels = [], []
         for output in outputs:
             gold_labels += output['gold_labels'].tolist()
             pred_labels += output['pred_labels'].tolist()
-        print(gold_labels)
-        print(pred_labels)
 
-        gold_labels = np.array(gold_labels)
-        pred_labels = np.array(pred_labels)
-
-        eval_score = f1_score(gold_labels, pred_labels, average='macro')
-        logs = {"score": eval_score}
+        gold_labels = np.array(gold_labels).squeeze(-1)
+        pred_labels = np.array(pred_labels).squeeze(-1)
+        logs = {}
+        compute_metrics(logs, pred_labels, gold_labels, bins=None)
+        
+        print("\n\n")
+        print("predictions:")
+        print("{}".format(pred_labels))
+        print("labels:")
+        print("{}".format(gold_labels))
+        print("\n\n")
+        print(logs)
 
         if test:
             eval_multiclass(self.logger.log_dir + '/sentence', gold_labels, pred_labels)
@@ -111,7 +110,7 @@ class LevelEstimaterBase(pl.LightningModule):
                     fw.write('{0}\n'.format(sent_lv))
             
             with open(self.logger.log_dir + '/predictions.txt', 'w') as file:
-                predictions_info = '\n'.join(['{} | {}'.format(str(pred[0]), str(target[0])) for pred, target in zip(pred_labels, gold_labels)])
+                predictions_info = '\n'.join(['{} | {}'.format(str(pred), str(target)) for pred, target in zip(pred_labels, gold_labels)])
                 file.write(predictions_info)
 
         return logs
@@ -131,39 +130,42 @@ class LevelEstimaterBase(pl.LightningModule):
 
         if self.use_pretokenizer:
             self.train_info["sents"] = [self.do_pretokenize(s) for s in self.train_info["sents"]]
-        self.train_sents = self.train_info["sents"]
+        self.train_inputs = {"sents": self.train_info["sents"], "extra_embs": self.train_info["extra_embs"]}
         
         self.dev_levels, self.dev_info = read_corpus(
             self.corpus_path + '/valid.tsv', self.num_labels, self.score_name)
         if self.use_pretokenizer:
             self.dev_info["sents"] = [self.do_pretokenize(s) for s in self.dev_info["sents"]]
-        self.dev_sents = self.dev_info["sents"]
+        self.dev_inputs = {"sents": self.dev_info["sents"], "extra_embs": self.dev_info["extra_embs"]}
         
         self.test_levels, self.test_info = read_corpus(
             self.test_corpus_path + '/test.tsv', self.num_labels, self.score_name)
         if self.use_pretokenizer:
-            self.test_info["sents"] = [self.do_pretokenize(s) for s in self.test_info["sents"]]            
-        self.test_sents = self.test_info["sents"]
+            self.test_info["sents"] = [self.do_pretokenize(s) for s in self.test_info["sents"]]
+        self.test_inputs = {"sents": self.test_info["sents"], "extra_embs": self.test_info["extra_embs"]}    
 
     # return the dataloader for each split
     def train_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
         y_sent = torch.tensor(self.train_levels, dtype=data_type).unsqueeze(1)
-        inputs = self.my_tokenize(self.train_sents)
+        inputs = self.my_tokenize(self.train_inputs["sents"])
+        inputs["extra_embs"] = torch.tensor(self.train_inputs["extra_embs"], dtype=torch.float32)
         
         return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
         y_sent = torch.tensor(self.dev_levels, dtype=data_type).unsqueeze(1)
-        inputs = self.my_tokenize(self.dev_sents)
+        inputs = self.my_tokenize(self.dev_inputs["sents"])
+        inputs["extra_embs"] = torch.tensor(self.dev_inputs["extra_embs"], dtype=torch.float32)
 
         return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
 
     def test_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
         y_sent = torch.tensor(self.test_levels, dtype=data_type).unsqueeze(1)
-        inputs = self.my_tokenize(self.test_sents)
+        inputs = self.my_tokenize(self.test_inputs["sents"])
+        inputs["extra_embs"] = torch.tensor(self.test_inputs["extra_embs"], dtype=torch.float32)
 
         return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
 

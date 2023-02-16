@@ -7,6 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import csv
 import sys
+from local.nlp_models import NlpModel
 
 class TextDataset(torch.utils.data.Dataset):
     def __init__(self, encodings):
@@ -47,6 +48,7 @@ class ConcatDataset(torch.utils.data.Dataset):
 
 def read_corpus(path, num_labels, score_name):
     ids, levels, sents, wav_paths, extra_embs = [], [], [], [], []
+    #nlp_model = NlpModel()
 
     lines = _read_tsv(path)
     for i, line in enumerate(lines):
@@ -61,12 +63,13 @@ def read_corpus(path, num_labels, score_name):
             # remove a leading- or tailing-space of the utterance.
             wav_path = " ".join(wav_path_list[j].split())
             text = " ".join(text_list[j].split()).split()
+            #cefr_emb = [nlp_model.vocab_profile_feats(text_list[j])["vp_" + feats_id ] for feats_id in ["a1", "a2", "b1", "b2", "c1", "c2"]]
             
             ids.append(line[columns["text_id"]])
             levels.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
             sents.append(text)
             wav_paths.append(wav_path)
-            extra_embs.append(wav_path)
+            extra_embs.append(float(line[columns[score_name]]) - 1)
 
     levels = np.array(levels)
 
