@@ -94,7 +94,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             checkpoint_path=`find $new_exp_root/$exp_dir/version_0 -name *ckpt`
             echo "$part $sn $fd"
             echo $checkpoint_path
-            python level_estimator.py --model $model_path --lm_layer 11 --do_lower_case \
+            python level_estimator.py --model $model_path --lm_layer 11 --do_lower_case --do_test \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \

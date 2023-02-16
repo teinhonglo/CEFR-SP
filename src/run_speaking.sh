@@ -116,7 +116,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo "$part $sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \

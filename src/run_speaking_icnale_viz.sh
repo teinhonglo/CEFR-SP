@@ -111,7 +111,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             if [ -d $target_dir ]; then
                 rm -rf $target_dir
             fi
-            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                           --CEFR_lvs  $max_score \
                                           --seed 66 --num_labels $max_score \
                                           --max_epochs $max_epochs \
@@ -129,7 +129,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             if [ -d $target_dir ]; then
                 rm -rf $target_dir
             fi
-            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                           --CEFR_lvs  $max_score \
                                           --seed 66 --num_labels $max_score \
                                           --max_epochs $max_epochs \
@@ -146,7 +146,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             if [ -d $target_dir ]; then
                 rm -rf $target_dir
             fi
-            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator_viz.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                           --CEFR_lvs  $max_score \
                                           --seed 66 --num_labels $max_score \
                                           --max_epochs $max_epochs \
