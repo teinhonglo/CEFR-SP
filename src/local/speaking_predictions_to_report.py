@@ -70,6 +70,7 @@ def filled_csv(csv_dict, result_root, score, nf, text_ids, version_dir):
             
             assert csv_dict[nf][text_id]["anno"][score] == anno_score
             csv_dict[nf][text_id]["pred"][score] = pred_score
+            
     return True
 
 

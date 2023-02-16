@@ -77,6 +77,7 @@ def filled_csv(csv_dict, result_root, score, nf, text_ids, version_dir):
             
             assert csv_dict[nf][text_id]["anno"][score] == anno_score
             csv_dict[nf][text_id]["pred"][score] = pred_score
+    
     return True
 
 
@@ -133,7 +134,9 @@ def do_merge_speaker(csv_dict, nq, scores):
 
 number_questions = {
                     "tb1p1": 5,
-                    "tb1p2": 3
+                    "tb1p2": 3,
+                    "tb2p1": 5,
+                    "tb2p3": 2
                    }
 
 data_dir = args.data_dir
