@@ -19,6 +19,7 @@ max_seq_length=256
 max_epochs=-1
 alpha=0.5
 num_prototypes=3
+init_prototypes="pretrained"
 monitor="val_score"
 monitor_mode="max"
 stt_model_name=whisperv2_large
@@ -48,7 +49,12 @@ folds=`seq 1 $kfold`
 if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ]; then
     exp_tag=${exp_tag}level_estimator_${model_type}
 else
-    exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}
+    if [ $init_prototypes == "pretrained" ]; then
+        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}
+    else
+        extra_options="$extra_options --init_prototypes ${init_prototypes}"
+        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}_${init_prototypes}
+    fi
 fi
 
 if [ "$do_loss_weight" == "true" ]; then
@@ -138,7 +144,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo "$sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                       --CEFR_lvs  $max_score \
                                       --seed 66 --num_labels $max_score \
                                       --max_epochs $max_epochs \
