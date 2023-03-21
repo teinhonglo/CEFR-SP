@@ -1,6 +1,5 @@
 import random
-import os
-import json
+
 import tqdm
 import torch, glob, os, argparse
 from torch.utils.data import DataLoader
@@ -10,7 +9,10 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 import numpy as np
-from model_viz import LevelEstimaterClassification, LevelEstimaterContrastive
+from util import eval_multiclass, read_corpus, convert_numeral_to_eight_levels
+from model_w2v import LevelEstimaterClassification, LevelEstimaterContrastive
+from baseline_w2v import BaselineClassification
+torch.backends.cuda.matmul.allow_tf32 = True
 
 parser = argparse.ArgumentParser(description='CEFR level estimator.')
 parser.add_argument('--out', help='output directory', type=str, default='../out/')
@@ -45,12 +47,13 @@ parser.add_argument('--monitor_mode', default='max', type=str)
 parser.add_argument('--exp_dir', default='', type=str)
 parser.add_argument('--dropout_rate', default=0.1, type=float)
 parser.add_argument('--max_seq_length', default=510, type=int)
-parser.add_argument('--use_layernorm', action='store_true')
 parser.add_argument('--use_prediction_head', action='store_true')
-parser.add_argument('--use_pretokenizer', action='store_true')
-parser.add_argument('--loss_type', default='cross_entropy', type=str)
 parser.add_argument('--accumulate_grad_batches', default=1, type=int)
-parser.add_argument('--test_fn', default="test.tsv", type=str)
+parser.add_argument('--wav_model_type', default="", type=str)
+parser.add_argument('--wav_feature_extractor_name', default="", type=str)
+parser.add_argument('--wav_model_path_or_name', default="", type=str)
+parser.add_argument('--wav_model_cache_dir', default=None, type=str)
+parser.add_argument('--max_second', default=30, type=int)
 
 ####################################################################
 args = parser.parse_args()
@@ -182,7 +185,7 @@ if __name__ == '__main__':
     
 
     if args.pretrained is not None:
-        trainer = pl.Trainer(gpus=gpus, logger=logger)
+        trainer = pl.Trainer(gpus=gpus, logger=logger, precision=16, amp_backend="native")
         trainer.test(lv_estimater)
     else:
         # w/o learning rate tuning
@@ -191,6 +194,7 @@ if __name__ == '__main__':
                             val_check_interval=args.val_check_interval, 
                             max_epochs=args.max_epochs,
                             accumulate_grad_batches=args.accumulate_grad_batches, 
+                            precision=16, amp_backend="native",
                             callbacks=[checkpoint_callback, early_stop_callback, lr_monitor])
         trainer.fit(lv_estimater)
 

@@ -7,7 +7,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import csv
 import sys
-from local.nlp_models import NlpModel
+import re
+from torch.utils.data.dataloader import default_collate
+
 
 class TextDataset(torch.utils.data.Dataset):
     def __init__(self, encodings):
@@ -21,13 +23,13 @@ class TextDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.data_len
 
-class CEFRDataset(torch.utils.data.Dataset):
+class CEFRWavDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, levels):
         self.encodings = encodings
         self.labels = levels
 
     def __getitem__(self, idx):
-        item = {key: val[idx].clone().detach() for key, val in self.encodings.items()}
+        item = {key: val[idx] for key, val in self.encodings.items()}
         item['labels'] = self.labels[idx].clone().detach()
         return item
 
@@ -48,7 +50,6 @@ class ConcatDataset(torch.utils.data.Dataset):
 
 def read_corpus(path, num_labels, score_name):
     ids, levels, sents, wav_paths, extra_embs = [], [], [], [], []
-    #nlp_model = NlpModel()
 
     lines = _read_tsv(path)
     for i, line in enumerate(lines):
@@ -57,22 +58,18 @@ def read_corpus(path, num_labels, score_name):
             continue
         
         wav_path_list = line[columns['wav_path']].split(" | ")
-        text_list = line[columns['text']].split(" | ")
-        
-        #wav_path_list = [ " ".join(wav_path_list) ]
-        #text_list = [ " ".join(text_list) ]
+        text_list = line[columns['text']].split(" | ") 
        
         for j in range(len(text_list)):
             # remove a leading- or tailing-space of the utterance.
             wav_path = " ".join(wav_path_list[j].split())
             text = " ".join(text_list[j].split()).split()
-            #cefr_emb = [nlp_model.vocab_profile_feats(text_list[j])["vp_" + feats_id ] for feats_id in ["a1", "a2", "b1", "b2", "c1", "c2"]]
             
             ids.append(line[columns["text_id"]])
             levels.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
             sents.append(text)
             wav_paths.append(wav_path)
-            extra_embs.append(float(line[columns[score_name]]) - 1)
+            extra_embs.append(wav_path)
 
     levels = np.array(levels)
 
@@ -103,12 +100,6 @@ def _conversion(level_thresholds, values):
     levels = np.maximum(np.zeros((values.shape[0], 1)),
                         np.count_nonzero(thresh_array <= array, axis=1, keepdims=True) - 1).astype(int)
     return levels
-
-
-# Mean Pooling - Take attention mask into account for correct averaging
-def mean_pooling(token_embeddings, attention_mask):
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
 # Take attention mask into account for excluding padding

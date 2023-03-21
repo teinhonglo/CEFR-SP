@@ -10,7 +10,7 @@ trans_type="trans_stt"
 do_round="true"
 # model-related
 model=bert
-exp_tag=
+exp_tag=bert-model
 model_path=bert-base-uncased
 #exp_tag=deberta-model
 #model_path=microsoft/deberta-v3-large
@@ -19,44 +19,39 @@ max_seq_length=256
 max_epochs=-1
 alpha=0.5
 num_prototypes=3
-init_prototypes="pretrained"
 monitor="val_score"
 monitor_mode="max"
 stt_model_name=whisperv2_large
-model_type=classification
+model_type=contrastive
 do_loss_weight=true
 do_lower_case=true
-init_lr=5.0e-5
-batch_size=8
-accumulate_grad_batches=1
+init_lr=1.0e-5
+batch_size=4
+accumulate_grad_batches=2
 use_prediction_head=false
-use_pretokenizer=false
-use_layernorm=false
-normalize_cls=false
-loss_type="cross_entropy"
 dropout_rate=0.1
+max_second=60
+wav_model_type=wav2vec2
+wav_feature_extractor_name="facebook/wav2vec2-base"
+wav_model_path_or_name="facebook/wav2vec2-base"
+wav_model_cache_dir=
 
 extra_options=""
 
+#. ./path_cu111.sh
 . ./path.sh
 . ./parse_options.sh
 
 set -euo pipefail
 
-folds=`seq 1 $kfold`
-
 data_dir=../data-speaking/icnale/${trans_type}_${stt_model_name}
 exp_root=../exp-speaking/icnale/${trans_type}_${stt_model_name}
+folds=`seq 1 $kfold`
 
 if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ]; then
-    exp_tag=${exp_tag}level_estimator_${model_type}
+    exp_tag=level_estimator_w2v_${model_type}
 else
-    if [ $init_prototypes == "pretrained" ]; then
-        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}
-    else
-        extra_options="$extra_options --init_prototypes ${init_prototypes}"
-        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}_${init_prototypes}
-    fi
+    exp_tag=level_estimator_w2v_${model_type}_num_prototypes${num_prototypes}
 fi
 
 if [ "$do_loss_weight" == "true" ]; then
@@ -74,32 +69,16 @@ if [ "$use_prediction_head" == "true" ]; then
     extra_options="$extra_options --use_prediction_head"
 fi
 
-if [ "$use_pretokenizer" == "true" ]; then
-    exp_tag=${exp_tag}_pretok
-    extra_options="$extra_options --use_pretokenizer"
-fi
-
-if [ "$use_layernorm" == "true" ]; then
-    exp_tag=${exp_tag}_lnorm
-    extra_options="$extra_options --use_layernorm"
-fi
-
-if [ "$normalize_cls" == "true" ]; then
-    exp_tag=${exp_tag}_normcls
-    extra_options="$extra_options --normalize_cls"
-fi
-
-if [ "$loss_type" != "cross_entropy" ]; then
-    exp_tag=${exp_tag}_${loss_type}
-    extra_options="$extra_options --loss_type $loss_type"
-fi
-
 if [ "$max_epochs" != "-1" ]; then
     exp_tag=${exp_tag}_ep${max_epochs}
 fi
 
-model_name=`echo $model_path | sed -e 's/\//-/g'`
-exp_tag=${exp_tag}_${model_name}_${monitor}-${monitor_mode}_b${batch_size}g${accumulate_grad_batches}_lr${init_lr}_drop${dropout_rate}
+if [ "$max_second" != "-1" ]; then
+    exp_tag=${exp_tag}_ep${max_epochs}_ms${max_second}
+fi
+
+model_name=`echo $wav_model_path_or_name | sed -e 's/\//-/g'`
+exp_tag=${exp_tag}_${model_name}_${monitor}-${monitor_mode}_b${batch_size}g${accumulate_grad_batches}_lr${init_lr}_drop${dropout_rate}_maxseq${max_seq_length}
 
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then  
      
@@ -107,13 +86,8 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
         for fd in $folds; do
             echo "$sn $fd"
             exp_dir=$exp_tag/$sn/$fd
-            if [ -d $exp_root/$exp_tag/$sn/$fd/version_1 ]; then
-                echo "$exp_root/$exp_tag/$sn/$fd/version_1 is already existed. Exit!" 
-                continue
-            else
-                rm -rf $exp_root/$exp_tag/$sn/$fd/version_0
-            fi
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
+            rm -rf $exp_dir
+            python level_estimator_w2v.py --model $model_path --lm_layer 11 $extra_options \
                                       --CEFR_lvs  $max_score \
                                       --seed 66 --num_labels $max_score \
                                       --max_epochs $max_epochs \
@@ -126,7 +100,11 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
                                       --accumulate_grad_batches $accumulate_grad_batches \
                                       --dropout_rate $dropout_rate \
                                       --num_prototypes $num_prototypes --type ${model_type} --init_lr $init_lr \
-                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd 
+                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd \
+                                      --max_second $max_second \
+                                      --wav_model_type $wav_model_type \
+                                      --wav_feature_extractor_name $wav_feature_extractor_name \
+                                      --wav_model_path_or_name $wav_model_path_or_name 
         done
     done
 fi
@@ -151,7 +129,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo "$sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options --do_test \
+            python level_estimator_w2v.py --model $model_path --lm_layer 11 $extra_options --do_test \
                                       --CEFR_lvs  $max_score \
                                       --seed 66 --num_labels $max_score \
                                       --max_epochs $max_epochs \
@@ -161,7 +139,11 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
                                       --score_name $sn \
                                       --batch $batch_size --warmup 0 \
                                       --num_prototypes $num_prototypes --type ${model_type} --init_lr $init_lr \
-                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd --out $exp_root --pretrained $checkpoint_path
+                                      --alpha $alpha --data $data_dir/$fd --test $data_dir/$fd --out $exp_root --pretrained $checkpoint_path \
+                                      --max_second $max_second \
+                                      --wav_model_type $wav_model_type \
+                                      --wav_feature_extractor_name $wav_feature_extractor_name \
+                                      --wav_model_path_or_name $wav_model_path_or_name
 
         done
     done 

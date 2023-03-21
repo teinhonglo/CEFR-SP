@@ -17,10 +17,14 @@ exp_tag=bert-model
 model_path=bert-base-uncased
 max_score=8
 max_seq_length=512
-max_epochs=-1
-alpha=0.2
+max_epochs=20
+alpha=0.5
 monitor="train_loss"
+monitor_mode="min"
+num_prototypes=3
 extra_options=
+all_bins="1.5,2.5,3.5,4.5,5.5,6.5,7.5"
+cefr_bins="2.5,4.5,6.5"
 
 . ./path.sh
 . ./parse_options.sh
@@ -56,7 +60,7 @@ else
 fi
 
 model_name=`echo $model_path | sed -e 's/\//-/g'`
-exp_tag=${exp_tag}_${model_name}_${monitor}_alpha$alpha
+exp_tag=${exp_tag}_${model_name}_${monitor}-${monitor_mode}_alpha$alpha
 
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then  
      
@@ -72,7 +76,8 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
                                       --monitor $monitor \
-                                      --exp_dir $new_exp_dir \
+                                      --monitor_mode $monitor_mode \
+                                      --exp_dir $exp_dir \
                                       --score_name $sn \
                                       --batch 8 --warmup 0 --with_loss_weight \
                                       --num_prototypes $num_prototypes --type contrastive --init_lr 1.0e-5 \
@@ -91,7 +96,16 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             new_exp_root=${exp_root}_r${n_resamples}_${sn}
             exp_dir=$exp_tag/$sn/$fd
             # Test a pretrained model
-            checkpoint_path=`find $new_exp_root/$exp_dir/version_0 -name *ckpt`
+            checkpoint_path=`find $new_exp_root/$exp_tag/$sn/$fd/version_0 -name *ckpt`
+            if [ -z $checkpoint_path ]; then
+                echo "No such directories, $new_exp_root/$exp_tag/$sn/$fd/version_0";
+                exit 0;
+            fi
+            
+            if [ -d $new_exp_root/$exp_tag/$sn/$fd/version_1 ]; then
+                rm -rf $new_exp_root/$exp_tag/$sn/$fd/version_1
+            fi
+
             echo "$part $sn $fd"
             echo $checkpoint_path
             python level_estimator.py --model $model_path --lm_layer 11 --do_lower_case --do_test \
@@ -99,6 +113,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
                                       --monitor $monitor \
+                                      --monitor_mode $monitor_mode \
                                       --exp_dir $exp_dir \
                                       --score_name $sn \
                                       --batch 8 --warmup 0 --with_loss_weight \
@@ -113,11 +128,14 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     for sn in $score_names; do
         new_data_dir=${data_dir}_r${n_resamples}_${sn}
         new_runs_root=${exp_root}_r${n_resamples}_${sn}
+        echo $new_data_dir $new_runs_root
         python local/speaking_predictions_to_report.py  --data_dir $new_data_dir \
                                                     --result_root $new_runs_root/$exp_tag \
                                                     --folds "$folds" \
+                                                    --all_bins "$all_bins" \
+                                                    --cefr_bins "$cefr_bins" \
                                                     --version_dir version_0 \
-                                                    --scores "$score_names" > $new_runs_root/$exp_tag/report.log
+                                                    --scores "$sn" > $new_runs_root/$exp_tag/report.log
     done
 fi
 
@@ -128,6 +146,8 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
         echo $new_runs_root/$exp_tag
 
         python local/visualization.py   --result_root $new_runs_root/$exp_tag \
+                                        --all_bins "$all_bins" \
+                                        --cefr_bins "1.5,2.5,3.5" \
                                         --scores "$sn"
     done
 fi

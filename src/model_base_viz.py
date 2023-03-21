@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import f1_score
 from util import mean_pooling, token_embeddings_filtering_padding, read_corpus, CEFRDataset, eval_multiclass
 import stanza
+from metrics_np import compute_metrics
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
@@ -90,13 +91,18 @@ class LevelEstimaterBase(pl.LightningModule):
             pred_labels += output['pred_labels'].tolist()
             outputs_mean += output['outputs_mean'].tolist()
 
-        gold_labels = np.array(gold_labels)
-        pred_labels = np.array(pred_labels)
-        outputs_mean = np.array(outputs_mean)
-        unique_levels = np.unique(gold_labels)
-
-        eval_score = f1_score(gold_labels, pred_labels, average='macro')
-        logs = {"score": eval_score}
+        gold_labels = np.array(gold_labels).squeeze(-1)
+        pred_labels = np.array(pred_labels).squeeze(-1)
+        logs = {}
+        compute_metrics(logs, pred_labels, gold_labels, bins=None)
+        
+        print("\n\n")
+        print("predictions:")
+        print("{}".format(pred_labels))
+        print("labels:")
+        print("{}".format(gold_labels))
+        print("\n\n")
+        print(logs)
 
         if test:
             eval_multiclass(self.logger.log_dir + '/' + prefix + 'sentence', gold_labels, pred_labels)
@@ -106,7 +112,7 @@ class LevelEstimaterBase(pl.LightningModule):
                     fw.write('{0}\n'.format(sent_lv))
             
             with open(self.logger.log_dir + '/' + prefix + 'predictions.txt', 'w') as file:
-                predictions_info = '\n'.join(['{} | {}'.format(str(pred[0]), str(target[0])) for pred, target in zip(pred_labels, gold_labels)])
+                predictions_info = '\n'.join(['{} | {}'.format(str(pred), str(target)) for pred, target in zip(pred_labels, gold_labels)])
                 file.write(predictions_info)
             
             # 建立 TSNE 模型並降維

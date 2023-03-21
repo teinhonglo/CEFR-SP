@@ -31,6 +31,7 @@ accumulate_grad_batches=4
 use_prediction_head=false
 use_pretokenizer=false
 use_layernorm=false
+normalize_cls=false
 loss_type="cross_entropy"
 test_book=1
 part=1 # 1 = 基礎聽答, 2 = 情境式提問與問答, 3 = 主題式口說任務, 4 = 摘要報告 (不自動評分) 
@@ -40,6 +41,8 @@ ori_all_bins="1,2,2.5,3,3.5,4,4.5,5"
 all_bins="1.5,2.5,3.5,4.5,5.5,6.5,7.5"
 cefr_bins="1.5,3.5,5.5,7.5"
 dropout_rate=0.1
+lm_layer=11
+data_prefix=
 
 extra_options=""
 
@@ -51,8 +54,8 @@ set -euo pipefail
 folds=`seq 1 $kfold`
 corpus_dir=${corpus_dir}/tb${test_book}
 
-data_dir=../data-speaking/teemi-tb${test_book}p${part}/${trans_type}
-exp_root=../exp-speaking/teemi-tb${test_book}p${part}/${trans_type}
+data_dir=../data-speaking/teemi-tb${test_book}p${part}/${data_prefix}${trans_type}
+exp_root=../exp-speaking/teemi-tb${test_book}p${part}/${data_prefix}${trans_type}
 
 if [ "$test_on_valid" == "true" ]; then
     data_dir=${data_dir}_tov
@@ -111,6 +114,11 @@ if [ "$use_layernorm" == "true" ]; then
     extra_options="$extra_options --use_layernorm"
 fi
 
+if [ "$normalize_cls" == "true" ]; then
+    exp_tag=${exp_tag}_normcls
+    extra_options="$extra_options --normalize_cls"
+fi
+
 if [ "$loss_type" != "cross_entropy" ]; then
     exp_tag=${exp_tag}_${loss_type}
     extra_options="$extra_options --loss_type $loss_type"
@@ -139,7 +147,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
                 rm -rf $exp_root/$exp_tag/$sn/$fd/version_0
             fi
             
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
+            python level_estimator.py --model $model_path --lm_layer $lm_layer $extra_options \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
@@ -177,7 +185,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo "$part $sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
-            python level_estimator.py --model $model_path --lm_layer 11 $extra_options --do_test \
+            python level_estimator.py --model $model_path --lm_layer $lm_layer $extra_options --do_test \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \

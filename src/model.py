@@ -40,6 +40,7 @@ class LevelEstimaterClassification(LevelEstimaterBase):
         self.problem_type = problem_type
         self.with_loss_weight = with_loss_weight
         self.ib_beta = ib_beta
+        self.normalize_cls = args.normalize_cls
 
         if self.problem_type == "regression":
             self.slv_classifier = nn.Linear(self.lm.config.hidden_size, 1)
@@ -52,10 +53,10 @@ class LevelEstimaterClassification(LevelEstimaterBase):
                 if args.use_layernorm:
                     self.slv_classifier = nn.Sequential(nn.Dropout(p=args.dropout_rate),
                                                         nn.LayerNorm(self.lm.config.hidden_size),
-                                                        nn.Linear(self.lm.config.hidden_size, self.CEFR_lvs))
+                                                        nn.Linear(self.lm.config.hidden_size, self.CEFR_lvs, bias=(not self.normalize_cls)))
                 else:
                     self.slv_classifier = nn.Sequential(nn.Dropout(p=args.dropout_rate),
-                                                        nn.Linear(self.lm.config.hidden_size, self.CEFR_lvs))
+                                                        nn.Linear(self.lm.config.hidden_size, self.CEFR_lvs, bias=(not self.normalize_cls)))
         
             if self.with_loss_weight:
                 train_sentlv_weights = self.precompute_loss_weights()
@@ -71,6 +72,11 @@ class LevelEstimaterClassification(LevelEstimaterBase):
         # in lightning, forward defines the prediction/inference actions
         outputs, information_loss = self.encode(batch)
         outputs_mean = mean_pooling(outputs, attention_mask=batch['attention_mask'])
+        
+        if self.normalize_cls:
+            for W in self.slv_classifier.parameters():
+                W = F.normalize(W, dim=1)
+
         logits = self.slv_classifier(outputs_mean)
 
         if self.problem_type == "regression":

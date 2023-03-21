@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_root=../exp-speaking/teemi-tb1p1/trans_stt_tov
+exp_root=../exp-speaking/teemi-tb2p3/trans_stt_tov
 special_tag="*"
 
 . ./parse_options.sh
