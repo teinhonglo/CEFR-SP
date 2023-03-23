@@ -74,12 +74,12 @@ for score in list(kfold_info.keys()):
             y_true = kfold_info[score][nf][anno_type]
             y_pred = kfold_info[score][nf][pred_type]
             if anno_type == "anno":
-                y_true = np.digitize(y_true, all_bins)
-                y_pred = np.digitize(y_pred, all_bins)
+                y_true = y_true - 1 #np.digitize(y_true, all_bins)
+                y_pred = y_pred - 1 #np.digitize(y_pred, all_bins)
                 labels = ["pre-A","A1","A1A2","A2","A2B1","B1","B1B2", "B2"]
             else:
-                y_true = np.digitize(y_true, cefr_bins)
-                y_pred = np.digitize(y_pred, cefr_bins)
+                y_true = y_true - 1 #np.digitize(y_true, cefr_bins)
+                y_pred = y_pred - 1 #np.digitize(y_pred, cefr_bins)
                 labels = ["A1","A2","B1", "B2"]
             
             conf_mat = confusion_matrix(y_true, y_pred, labels=range(len(labels)))
