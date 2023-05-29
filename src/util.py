@@ -22,13 +22,18 @@ class TextDataset(torch.utils.data.Dataset):
         return self.data_len
 
 class CEFRDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, levels):
+    def __init__(self, encodings, levels, num_classes=5):
         self.encodings = encodings
         self.labels = levels
+        self.num_classes = num_classes
 
     def __getitem__(self, idx):
         item = {key: val[idx].clone().detach() for key, val in self.encodings.items()}
         item['labels'] = self.labels[idx].clone().detach()
+        label = item['labels']
+        levels = [1] * label + [0] * (self.num_classes - 1 - label)
+        levels = torch.tensor(levels, dtype=torch.float32)
+        item['labels_levels'] = levels
         return item
 
     def __len__(self):
@@ -46,8 +51,8 @@ class ConcatDataset(torch.utils.data.Dataset):
         return min(len(d) for d in self.datasets)
 
 
-def read_corpus(path, num_labels, score_name):
-    ids, levels, sents, wav_paths, extra_embs = [], [], [], [], []
+def read_corpus(path, num_labels, score_name, corpus="teemi"):
+    ids, prompts, levels, sents, wav_paths, extra_embs = [], [], [], [], [], []
     #nlp_model = NlpModel()
 
     lines = _read_tsv(path)
@@ -68,7 +73,20 @@ def read_corpus(path, num_labels, score_name):
             text = " ".join(text_list[j].split()).split()
             #cefr_emb = [nlp_model.vocab_profile_feats(text_list[j])["vp_" + feats_id ] for feats_id in ["a1", "a2", "b1", "b2", "c1", "c2"]]
             
-            ids.append(line[columns["text_id"]])
+            text_id = line[columns["text_id"]]
+            ids.append(text_id)
+            
+            if corpus == "teemi":
+                #item_code, _, _, _, _, item_no, _ = text_id.split("_")
+                #prompt = (item_code + "_0" + item_no.split("-")[-1]).lower()
+                prompt = ""
+            elif corpus == "icnale":
+                prompt = text_id.split("_")[2]
+            else:
+                prompt = ""
+                
+            prompts.append(prompt)
+            
             levels.append(float(line[columns[score_name]]) - 1)  # Convert 1-8 to 0-7
             sents.append(text)
             wav_paths.append(wav_path)
@@ -76,7 +94,7 @@ def read_corpus(path, num_labels, score_name):
 
     levels = np.array(levels)
 
-    return levels, {"ids": ids, "sents": sents, "wav_paths": wav_paths, "extra_embs": extra_embs}
+    return levels, {"ids": ids, "prompts": prompts, "sents": sents, "wav_paths": wav_paths, "extra_embs": extra_embs}
 
 
 def _read_tsv(input_file, quotechar=None):
@@ -110,6 +128,8 @@ def mean_pooling(token_embeddings, attention_mask):
     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
+#def mean_pooling(token_embeddings, attention_mask):
+#    return torch.mean(token_embeddings, dim=1)
 
 # Take attention mask into account for excluding padding
 def token_embeddings_filtering_padding(token_embeddings, attention_mask):

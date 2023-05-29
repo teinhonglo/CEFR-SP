@@ -19,17 +19,19 @@ max_seq_length=256
 max_epochs=-1
 alpha=0.5
 num_prototypes=3
+init_prototypes="pretrained"
 monitor="val_score"
 monitor_mode="max"
-stt_model_name=whisperv2_large
-model_type=contrastive
-do_loss_weight=true
+stt_model_name=whisper_large
+model_type=classification
+with_loss_weight=true
 do_lower_case=true
 init_lr=5.0e-5
-batch_size=32
+batch_size=8
 accumulate_grad_batches=1
-use_prediction_head=false
-use_pretokenizer=false
+use_layernorm=false
+normalize_cls=false
+freeze_encoder=false
 loss_type="cross_entropy"
 dropout_rate=0.1
 
@@ -40,17 +42,23 @@ extra_options=""
 
 set -euo pipefail
 
+folds=`seq 1 $kfold`
+
 data_dir=../data-speaking/icnale/${trans_type}_${stt_model_name}
 exp_root=../exp-speaking/icnale/${trans_type}_${stt_model_name}
-folds=`seq 1 $kfold`
 
 if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ]; then
     exp_tag=${exp_tag}level_estimator_${model_type}
 else
-    exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}
+    if [ $init_prototypes == "pretrained" ]; then
+        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}
+    else
+        extra_options="$extra_options --init_prototypes ${init_prototypes}"
+        exp_tag=${exp_tag}level_estimator_${model_type}_num_prototypes${num_prototypes}_${init_prototypes}
+    fi
 fi
 
-if [ "$do_loss_weight" == "true" ]; then
+if [ "$with_loss_weight" == "true" ]; then
     exp_tag=${exp_tag}_loss_weight_alpha${alpha}
     extra_options="$extra_options --with_loss_weight"
 fi
@@ -60,14 +68,19 @@ if [ "$do_lower_case" == "true" ]; then
     extra_options="$extra_options --do_lower_case"
 fi
 
-if [ "$use_prediction_head" == "true" ]; then
-    exp_tag=${exp_tag}_phead
-    extra_options="$extra_options --use_prediction_head"
+if [ "$use_layernorm" == "true" ]; then
+    exp_tag=${exp_tag}_lnorm
+    extra_options="$extra_options --use_layernorm"
 fi
 
-if [ "$use_pretokenizer" == "true" ]; then
-    exp_tag=${exp_tag}_pretok
-    extra_options="$extra_options --use_pretokenizer"
+if [ "$normalize_cls" == "true" ]; then
+    exp_tag=${exp_tag}_normcls
+    extra_options="$extra_options --normalize_cls"
+fi
+
+if [ "$freeze_encoder" == "true" ]; then
+    exp_tag=${exp_tag}_freezeEnc
+    extra_options="$extra_options --freeze_encoder"
 fi
 
 if [ "$loss_type" != "cross_entropy" ]; then
@@ -167,3 +180,45 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
     done 
 fi
 
+BERT_probe_dir=/share/nas165/teinhonglo/github_repo/BERT-fine-tuning-analysis/data/icnale
+
+if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
+    echo $exp_tag
+    for sn in $score_names; do
+        for fd in $folds; do
+            target_dir=$exp_root/$exp_tag/$sn/$fd/version_1
+            for cond in embeddings entities; do
+                if [ ! -d $BERT_probe_dir/${cond} ]; then
+                    mkdir -p $BERT_probe_dir/${cond}
+                fi
+                for data_type in train test; do
+                    src_fn=$target_dir/${data_type}_${cond}.txt
+                    if [ "$cond" == "embeddings" ]; then
+                        tgt_fn=$BERT_probe_dir/${cond}/${exp_tag}-${data_type}.txt
+                    else
+                        tgt_fn=$BERT_probe_dir/${cond}/${data_type}.txt
+                    fi
+                    echo $src_fn $tgt_fn
+                    cp -r $src_fn $tgt_fn
+                done
+            done
+            
+            cond=labels
+            data_type=train
+            src_fn=$target_dir/${data_type}_${cond}.txt
+            tgt_fn=$BERT_probe_dir/${cond}/tags.txt
+            
+            if [ ! -d $BERT_probe_dir/${cond} ]; then
+                mkdir -p $BERT_probe_dir/${cond}
+            fi
+            
+            if [ ! -f $tgt_fn ]; then
+                #echo $src_fn $tgt_fn
+                cp -r $src_fn $tgt_fn
+            fi
+            
+        done
+    done
+
+
+fi

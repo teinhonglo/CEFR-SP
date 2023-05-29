@@ -18,6 +18,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
+from typing import Optional
 
 
 
@@ -25,7 +26,7 @@ import numpy as np
 class GlobalPointerCrossEntropy(nn.Module):
     '''Multi-class Focal loss implementation'''
 
-    def __init__(self,):
+    def __init__(self, CEFR_lvs=8, loss_weights=None):
         super(GlobalPointerCrossEntropy, self).__init__()
 
     @staticmethod
@@ -361,4 +362,74 @@ class OLLoss20(nn.Module):
         
         return loss
 
+class CORALLoss(nn.Module):
 
+    def __init__(self, CEFR_lvs, weight=None):
+        super().__init__()
+        self.num_classes = CEFR_lvs
+        # https://github.com/Raschka-research-group/coral-cnn/blob/726e54579db008d9c16868fa76b2292b9dec9fbc/model-code/cacd-coral.py#L117-L137
+        self.loss_weights = weight[:self.num_classes -1]
+ 
+    def forward(self, logits, labels, labels1):
+        
+        device = logits.device
+        self.loss_weights = self.loss_weights.to(device)
+        
+        if self.loss_weights is None:
+            err = (
+                -torch.sum(
+                    (
+                        F.logsigmoid(logits)*labels + (F.logsigmoid(logits) - logits) * (1-labels)
+                    ),
+                    dim=1)
+                )
+        else:
+            #self.loss_weights is not None:
+            err = (
+                -torch.sum(
+                    (
+                        F.logsigmoid(logits)*labels + (F.logsigmoid(logits) - logits) * (1-labels) 
+                    ) * self.loss_weights,
+                    dim=1)
+                )
+                
+        loss = torch.mean(err)
+        
+        return loss
+        
+class CORNLoss(nn.Module):
+
+    def __init__(self, CEFR_lvs, weight=None):
+        super().__init__()
+        self.num_classes = CEFR_lvs
+        self.loss_weights = weight
+ 
+    def forward(self, logits, labels):
+        
+        device = logits.device
+        num_classes = self.num_classes
+        
+        sets = []
+        for i in range(num_classes-1):
+            label_mask = labels > i-1
+            label_tensor = (labels[label_mask] > i).to(torch.int64)
+            sets.append((label_mask, label_tensor))
+
+        num_examples = 0
+        losses = 0.
+        for task_index, s in enumerate(sets):
+            train_examples = s[0]
+            train_labels = s[1]
+
+            if len(train_labels) < 1:
+                continue
+
+            num_examples += len(train_labels)
+            pred = logits[train_examples, task_index]
+
+            loss = -torch.sum(F.logsigmoid(pred)*train_labels
+                              + (F.logsigmoid(pred) - pred)*(1-train_labels)
+                              )
+            losses += loss
+            
+        return losses/num_examples

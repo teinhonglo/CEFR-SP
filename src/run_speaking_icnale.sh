@@ -22,17 +22,16 @@ num_prototypes=3
 init_prototypes="pretrained"
 monitor="val_score"
 monitor_mode="max"
-stt_model_name=whisperv2_large
+stt_model_name=whisper_large
 model_type=classification
-do_loss_weight=true
+with_loss_weight=true
 do_lower_case=true
 init_lr=5.0e-5
 batch_size=8
 accumulate_grad_batches=1
-use_prediction_head=false
-use_pretokenizer=false
 use_layernorm=false
 normalize_cls=false
+freeze_encoder=false
 loss_type="cross_entropy"
 dropout_rate=0.1
 
@@ -48,7 +47,7 @@ folds=`seq 1 $kfold`
 data_dir=../data-speaking/icnale/${trans_type}_${stt_model_name}
 exp_root=../exp-speaking/icnale/${trans_type}_${stt_model_name}
 
-if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ]; then
+if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ] || [ "$model_type" == "corn" ] ; then
     exp_tag=${exp_tag}level_estimator_${model_type}
 else
     if [ $init_prototypes == "pretrained" ]; then
@@ -59,7 +58,7 @@ else
     fi
 fi
 
-if [ "$do_loss_weight" == "true" ]; then
+if [ "$with_loss_weight" == "true" ]; then
     exp_tag=${exp_tag}_loss_weight_alpha${alpha}
     extra_options="$extra_options --with_loss_weight"
 fi
@@ -67,16 +66,6 @@ fi
 if [ "$do_lower_case" == "true" ]; then
     exp_tag=${exp_tag}_lcase
     extra_options="$extra_options --do_lower_case"
-fi
-
-if [ "$use_prediction_head" == "true" ]; then
-    exp_tag=${exp_tag}_phead
-    extra_options="$extra_options --use_prediction_head"
-fi
-
-if [ "$use_pretokenizer" == "true" ]; then
-    exp_tag=${exp_tag}_pretok
-    extra_options="$extra_options --use_pretokenizer"
 fi
 
 if [ "$use_layernorm" == "true" ]; then
@@ -87,6 +76,11 @@ fi
 if [ "$normalize_cls" == "true" ]; then
     exp_tag=${exp_tag}_normcls
     extra_options="$extra_options --normalize_cls"
+fi
+
+if [ "$freeze_encoder" == "true" ]; then
+    exp_tag=${exp_tag}_freezeEnc
+    extra_options="$extra_options --freeze_encoder"
 fi
 
 if [ "$loss_type" != "cross_entropy" ]; then
@@ -114,6 +108,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
                 rm -rf $exp_root/$exp_tag/$sn/$fd/version_0
             fi
             python level_estimator.py --model $model_path --lm_layer 11 $extra_options \
+                                      --corpus "icnale" \
                                       --CEFR_lvs  $max_score \
                                       --seed 66 --num_labels $max_score \
                                       --max_epochs $max_epochs \
@@ -152,6 +147,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
             python level_estimator.py --model $model_path --lm_layer 11 $extra_options --do_test \
+                                      --corpus "icnale" \
                                       --CEFR_lvs  $max_score \
                                       --seed 66 --num_labels $max_score \
                                       --max_epochs $max_epochs \

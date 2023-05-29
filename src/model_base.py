@@ -39,23 +39,32 @@ class LevelEstimaterBase(pl.LightningModule):
         self.do_lower_case = args.do_lower_case
         self.max_seq_length = args.max_seq_length
         self.special_tokens_count = 2
-        self.use_pretokenizer = args.use_pretokenizer
-
+        self.corpus = args.corpus
+        
         # Load pre-trained model
         self.load_pretrained_lm()
 
+        if args.freeze_encoder:
+            self.freeze_encoder()
+
     def load_pretrained_lm(self):
-        if self.use_pretokenizer:
-            self.pre_tokenizer = stanza.Pipeline(lang='en', processors='tokenize', use_gpu=True)
         
-        if 'roberta' in self.pretrained_model:
+        if 'roberta' in self.pretrained_model or 'data2vec' in self.pretrained_model:
             self.tokenizer = AutoTokenizer.from_pretrained(self.pretrained_model, add_prefix_space=True, do_lower_case=self.do_lower_case, max_length=self.max_seq_length, truncation=True)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(self.pretrained_model, do_lower_case=self.do_lower_case, max_length=self.max_seq_length, truncation=True)
         self.lm = AutoModel.from_pretrained(self.pretrained_model)
+    
+    def freeze_encoder(self):
+        for param in self.lm.parameters():
+            param.requires_grad = False
+
+    def unfreeze_encoder(self):
+        for param in self.lm.parameters():
+            param.requires_grad = True
 
     def precompute_loss_weights(self, epsilon=1e-5):
-        train_levels, _ = read_corpus(self.corpus_path + '/train.tsv', self.num_labels, self.score_name)
+        train_levels, _ = read_corpus(self.corpus_path + '/train.tsv', self.num_labels, self.score_name, self.corpus)
 
         train_sentlv_ratio = np.array([np.sum(train_levels == lv) for lv in range(self.CEFR_lvs)])
         train_sentlv_ratio = train_sentlv_ratio / np.sum(train_sentlv_ratio)
@@ -74,14 +83,44 @@ class LevelEstimaterBase(pl.LightningModule):
     def forward(self, inputs):
         pass
 
+    def step(self, batch):
+        loss, predictions, logs = self.forward(batch)
+        gold_labels = batch['labels'].cpu().detach().clone().numpy()
+        golds_predictions = {'gold_labels': gold_labels,
+                             'pred_labels': predictions}
+        return loss, logs
+
+    def _shared_eval_step(self, batch):
+        loss, predictions, logs = self.forward(batch)
+
+        gold_labels = batch['labels'].cpu().detach().clone().numpy()
+        golds_predictions = {'gold_labels': gold_labels,
+                             'pred_labels': predictions}
+
+        return logs, golds_predictions
+
     def training_step(self, batch, batch_idx):
-        pass
+        loss, logs = self.step(batch)
+        self.log_dict({f"train_{k}": v for k, v in logs.items()})
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        logs, golds_predictions = self._shared_eval_step(batch)
+        self.log_dict({f"val_{k}": v for k, v in logs.items()})
+        return golds_predictions
+
+    def validation_epoch_end(self, outputs):
+        logs = self.evaluation(outputs)
+        self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
     def test_step(self, batch, batch_idx):
-        pass
+        logs, golds_predictions = self._shared_eval_step(batch)
+        self.log_dict({f"test_{k}": v for k, v in logs.items()})
+        return golds_predictions
+
+    def test_epoch_end(self, outputs):
+        logs = self.evaluation(outputs, test=True)
+        self.log_dict({f"test_{k}": v for k, v in logs.items()})
 
     def evaluation(self, outputs, test=False):
         pred_labels, gold_labels = [], []
@@ -126,22 +165,15 @@ class LevelEstimaterBase(pl.LightningModule):
 
     def prepare_data(self):
         self.train_levels, self.train_info = read_corpus(
-            self.corpus_path + '/train.tsv', self.num_labels, self.score_name) 
-
-        if self.use_pretokenizer:
-            self.train_info["sents"] = [self.do_pretokenize(s) for s in self.train_info["sents"]]
+            self.corpus_path + '/train.tsv', self.num_labels, self.score_name, self.corpus)
         self.train_inputs = {"sents": self.train_info["sents"], "extra_embs": self.train_info["extra_embs"]}
         
         self.dev_levels, self.dev_info = read_corpus(
-            self.corpus_path + '/valid.tsv', self.num_labels, self.score_name)
-        if self.use_pretokenizer:
-            self.dev_info["sents"] = [self.do_pretokenize(s) for s in self.dev_info["sents"]]
+            self.corpus_path + '/valid.tsv', self.num_labels, self.score_name, self.corpus)
         self.dev_inputs = {"sents": self.dev_info["sents"], "extra_embs": self.dev_info["extra_embs"]}
         
         self.test_levels, self.test_info = read_corpus(
-            self.test_corpus_path + '/test.tsv', self.num_labels, self.score_name)
-        if self.use_pretokenizer:
-            self.test_info["sents"] = [self.do_pretokenize(s) for s in self.test_info["sents"]]
+            self.test_corpus_path + '/test.tsv', self.num_labels, self.score_name, self.corpus)
         self.test_inputs = {"sents": self.test_info["sents"], "extra_embs": self.test_info["extra_embs"]}    
 
     # return the dataloader for each split
@@ -151,7 +183,7 @@ class LevelEstimaterBase(pl.LightningModule):
         inputs = self.my_tokenize(self.train_inputs["sents"])
         inputs["extra_embs"] = torch.tensor(self.train_inputs["extra_embs"], dtype=torch.float32)
         
-        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=True)
+        return DataLoader(CEFRDataset(inputs, y_sent, self.num_labels), batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
@@ -159,7 +191,7 @@ class LevelEstimaterBase(pl.LightningModule):
         inputs = self.my_tokenize(self.dev_inputs["sents"])
         inputs["extra_embs"] = torch.tensor(self.dev_inputs["extra_embs"], dtype=torch.float32)
 
-        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
+        return DataLoader(CEFRDataset(inputs, y_sent, self.num_labels), batch_size=self.batch_size, shuffle=False)
 
     def test_dataloader(self):
         data_type = torch.float if self.num_labels == 1 else torch.long
@@ -167,7 +199,7 @@ class LevelEstimaterBase(pl.LightningModule):
         inputs = self.my_tokenize(self.test_inputs["sents"])
         inputs["extra_embs"] = torch.tensor(self.test_inputs["extra_embs"], dtype=torch.float32)
 
-        return DataLoader(CEFRDataset(inputs, y_sent), batch_size=self.batch_size, shuffle=False)
+        return DataLoader(CEFRDataset(inputs, y_sent, self.num_labels), batch_size=self.batch_size, shuffle=False)
 
     def my_tokenize(self, sents):
         max_seq_length = self.max_seq_length
@@ -181,8 +213,6 @@ class LevelEstimaterBase(pl.LightningModule):
                     break
                 word_pieces = self.tokenizer.tokenize(word)
 
-                if self.use_pretokenizer and len(word_pieces) > 1:
-                    word_pieces = ["[UNK]"]
 
                 tokens.extend(word_pieces)
                 
@@ -195,9 +225,3 @@ class LevelEstimaterBase(pl.LightningModule):
                                 is_split_into_words=True,
                                 return_offsets_mapping=True)
         return inputs
-
-    def do_pretokenize(self, ori_sent):
-        text = " ".join(ori_sent)
-        doc = self.pre_tokenizer(text.lower())
-        tokens = [ token.text for sent in doc.sentences for token in sent.tokens ]
-        return tokens

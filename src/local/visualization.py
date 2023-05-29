@@ -80,7 +80,7 @@ for score in list(kfold_info.keys()):
             else:
                 y_true = y_true - 1 #np.digitize(y_true, cefr_bins)
                 y_pred = y_pred - 1 #np.digitize(y_pred, cefr_bins)
-                labels = ["A1","A2","B1", "B2"]
+                labels = ["pre-A", "A1","A2","B1", "B2"]
             
             conf_mat = confusion_matrix(y_true, y_pred, labels=range(len(labels)))
             row_sum = np.sum(conf_mat, axis = 1)

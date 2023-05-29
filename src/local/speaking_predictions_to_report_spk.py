@@ -136,7 +136,9 @@ number_questions = {
                     "tb1p1": 5,
                     "tb1p2": 3,
                     "tb2p1": 5,
-                    "tb2p3": 2
+                    "tb2p3": 2,
+                    "tb3p2": 1,
+                    "tb3p3": 3
                    }
 
 data_dir = args.data_dir

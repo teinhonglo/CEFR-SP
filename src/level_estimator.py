@@ -11,7 +11,14 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 import numpy as np
 from util import eval_multiclass, read_corpus, convert_numeral_to_eight_levels
-from model import LevelEstimaterClassification, LevelEstimaterContrastive, LevelEstimaterContrastiveSED, LevelEstimaterContrastiveDot
+from model import (
+LevelEstimaterClassification, 
+LevelEstimaterCORN,
+LevelEstimaterContrastive, 
+LevelEstimaterContrastiveSED, 
+LevelEstimaterContrastiveDot,
+LevelEstimaterSContrastive,
+)
 from baseline import BaselineClassification
 from model_base import CEFRDataset
 
@@ -26,7 +33,7 @@ parser.add_argument('--init_prototypes', help='initializing prototypes', type=st
 parser.add_argument('--model', help='Pretrained model', type=str, default='bert-base-cased')
 parser.add_argument('--pretrained', help='Pretrained level estimater', type=str, default=None)
 parser.add_argument('--type', help='Level estimater type', type=str, required=True,
-                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'contrastive', 'contrastive_sed', 'contrastive_dot'])
+                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'contrastive', 'contrastive_sed', 'contrastive_dot', 'scontrastive', 'corn'])
 parser.add_argument('--with_loss_weight', action='store_true')
 parser.add_argument('--do_lower_case', action='store_true')
 parser.add_argument('--lm_layer', help='number of attention heads', type=int, default=-1)
@@ -48,6 +55,10 @@ parser.add_argument('--use_prediction_head', action='store_true')
 parser.add_argument('--use_pretokenizer', action='store_true')
 parser.add_argument('--normalize_cls', action='store_true')
 parser.add_argument('--do_test', action='store_true')
+parser.add_argument('--prompts', default="a01_01,a01_02,a01_03,a01_04,a01_05", type=str)
+parser.add_argument('--add_prompt', action='store_true')
+parser.add_argument('--freeze_encoder', action='store_true')
+parser.add_argument('--corpus', default='teemi', type=str)
 parser.add_argument('--loss_type', default='cross_entropy', type=str)
 parser.add_argument('--accumulate_grad_batches', default=1, type=int)
 ##### The followings are unused arguments: You can just ignore #####
@@ -147,10 +158,9 @@ if __name__ == '__main__':
                                                     warmup=args.warmup,
                                                     lm_layer=args.lm_layer, 
                                                     args=args)
-
-    elif args.type in ['classification_admsoftmax']:
+    elif args.type in ['corn']:
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterClassificationADMSoftmax.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterCORN.load_from_checkpoint(args.pretrained, corpus_path=args.data,
                                                                              test_corpus_path=args.test,
                                                                              pretrained_model=args.model,
                                                                              problem_type=args.type, 
@@ -167,7 +177,7 @@ if __name__ == '__main__':
                                                                              lm_layer=args.lm_layer, 
                                                                              args=args)
         else:
-            lv_estimater = LevelEstimaterClassificationADMSoftmax(corpus_path=args.data, 
+            lv_estimater = LevelEstimaterCORN(corpus_path=args.data, 
                                                     test_corpus_path=args.test, 
                                                     pretrained_model=args.model, 
                                                     problem_type=args.type, 
@@ -182,8 +192,7 @@ if __name__ == '__main__':
                                                     learning_rate=args.init_lr,
                                                     warmup=args.warmup,
                                                     lm_layer=args.lm_layer, 
-                                                    args=args)
-
+                                                    args=args)                                                    
     elif args.type == 'contrastive':
         if args.pretrained is not None:
             lv_estimater = LevelEstimaterContrastive.load_from_checkpoint(args.pretrained, corpus_path=args.data,
@@ -279,6 +288,43 @@ if __name__ == '__main__':
                                                                           args=args)
         else:
             lv_estimater = LevelEstimaterContrastiveDot(corpus_path=args.data, 
+                                                 test_corpus_path=args.test, 
+                                                 pretrained_model=args.model, 
+                                                 problem_type=args.type, 
+                                                 with_ib=args.with_ib,
+                                                 with_loss_weight=args.with_loss_weight, 
+                                                 attach_wlv=args.attach_wlv,
+                                                 num_labels=args.num_labels,
+                                                 word_num_labels=args.word_num_labels,
+                                                 num_prototypes=args.num_prototypes,
+                                                 alpha=args.alpha, 
+                                                 ib_beta=args.ib_beta, 
+                                                 batch_size=args.batch,
+                                                 learning_rate=args.init_lr,
+                                                 warmup=args.warmup,
+                                                 lm_layer=args.lm_layer, 
+                                                 args=args)                                                                                            
+    elif args.type == 'scontrastive':
+        if args.pretrained is not None:
+            lv_estimater = LevelEstimaterSContrastive.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+                                                                          test_corpus_path=args.test,
+                                                                          pretrained_model=args.model,
+                                                                          problem_type=args.type,
+                                                                          with_ib=args.with_ib,
+                                                                          with_loss_weight=args.with_loss_weight,
+                                                                          attach_wlv=args.attach_wlv,
+                                                                          num_labels=args.num_labels,
+                                                                          word_num_labels=args.word_num_labels,
+                                                                          num_prototypes=args.num_prototypes,
+                                                                          alpha=args.alpha, 
+                                                                          ib_beta=args.ib_beta,
+                                                                          batch_size=args.batch,
+                                                                          learning_rate=args.init_lr,
+                                                                          warmup=args.warmup, 
+                                                                          lm_layer=args.lm_layer, 
+                                                                          args=args)
+        else:
+            lv_estimater = LevelEstimaterSContrastive(corpus_path=args.data, 
                                                  test_corpus_path=args.test, 
                                                  pretrained_model=args.model, 
                                                  problem_type=args.type, 

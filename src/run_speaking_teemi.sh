@@ -13,17 +13,17 @@ do_round="true"
 # model-related
 model=bert
 exp_tag=
-model_path=bert-base-uncased
+model_path=sentence-transformers/all-mpnet-base-v2
 max_score=8
 max_seq_length=128
 max_epochs=-1
-alpha=0.5
+alpha=0.2
 num_prototypes=3
 init_prototypes="pretrained"
 monitor="val_score"
 monitor_mode="max"
 model_type=contrastive
-do_loss_weight=true
+with_loss_weight=true
 do_lower_case=true
 init_lr=5.0e-5
 batch_size=8
@@ -37,11 +37,14 @@ test_book=1
 part=1 # 1 = 基礎聽答, 2 = 情境式提問與問答, 3 = 主題式口說任務, 4 = 摘要報告 (不自動評分) 
 do_split=true
 do_dig=true
+add_prompt=false
+prompts=
 ori_all_bins="1,2,2.5,3,3.5,4,4.5,5"
 all_bins="1.5,2.5,3.5,4.5,5.5,6.5,7.5"
 cefr_bins="1.5,3.5,5.5,7.5"
-dropout_rate=0.1
+dropout_rate=0.0
 lm_layer=11
+do_ar=false
 data_prefix=
 
 extra_options=""
@@ -71,14 +74,19 @@ else
 fi
 
 if [ "$do_split" == "true" ]; then
-    # 一個音檔當一個
+    # 一個音檔當一個範例
     echo "do split"
 else
     data_dir=${data_dir}_nosp
     exp_root=${exp_root}_nosp
 fi
 
-if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ]; then
+if [ "$do_ar" == "true" ]; then
+    data_dir=${data_dir}_oar
+    exp_root=${exp_root}_oar
+fi
+
+if [ "$model_type" == "classification" ] || [ "$model_type" == "regression" ] || [ "$model_type" == "corn" ] ; then
     exp_tag=${exp_tag}level_estimator_${model_type}
 else
     if [ $init_prototypes == "pretrained" ]; then
@@ -89,7 +97,7 @@ else
     fi
 fi
 
-if [ "$do_loss_weight" == "true" ]; then
+if [ "$with_loss_weight" == "true" ]; then
     exp_tag=${exp_tag}_loss_weight_alpha${alpha}
     extra_options="$extra_options --with_loss_weight"
 fi
@@ -119,13 +127,20 @@ if [ "$normalize_cls" == "true" ]; then
     extra_options="$extra_options --normalize_cls"
 fi
 
+if [ "$add_prompt" == "true" ]; then
+    if [ -z $prompts ]; then
+        echo "a prompt should be assighted by values"
+        exit 0;
+    fi
+    
+    exp_tag=${exp_tag}_addpmpt
+    extra_options="$extra_options --add_prompt --prompts $prompts"
+fi
+
+
 if [ "$loss_type" != "cross_entropy" ]; then
     exp_tag=${exp_tag}_${loss_type}
     extra_options="$extra_options --loss_type $loss_type"
-fi
-
-if [ "$max_epochs" != "-1" ]; then
-    exp_tag=${exp_tag}_ep${max_epochs}
 fi
 
 if [ "$max_epochs" != "-1" ]; then
@@ -148,6 +163,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
             fi
             
             python level_estimator.py --model $model_path --lm_layer $lm_layer $extra_options \
+                                      --corpus teemi \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
@@ -185,7 +201,9 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
             echo "$part $sn $fd"
             echo $checkpoint_path
             exp_dir=$exp_tag/$sn/$fd
+            
             python level_estimator.py --model $model_path --lm_layer $lm_layer $extra_options --do_test \
+                                      --corpus teemi \
                                       --CEFR_lvs  $max_score \
                                       --seed 985 --num_labels $max_score \
                                       --max_epochs $max_epochs \
