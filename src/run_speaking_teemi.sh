@@ -24,6 +24,7 @@ monitor="val_score"
 monitor_mode="max"
 model_type=contrastive
 with_loss_weight=true
+loss_weight_type=1
 do_lower_case=true
 init_lr=5.0e-5
 batch_size=8
@@ -99,7 +100,10 @@ fi
 
 if [ "$with_loss_weight" == "true" ]; then
     exp_tag=${exp_tag}_loss_weight_alpha${alpha}
-    extra_options="$extra_options --with_loss_weight"
+    if [ "$loss_weight_type" != "1" ]; then
+        exp_tag=${exp_tag}_loss_type$loss_weight_type
+    fi
+    extra_options="$extra_options --with_loss_weight --loss_weight_type $loss_weight_type"
 fi
 
 if [ "$do_lower_case" == "true" ]; then

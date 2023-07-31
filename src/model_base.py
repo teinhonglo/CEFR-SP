@@ -38,6 +38,7 @@ class LevelEstimaterBase(pl.LightningModule):
         self.score_name = args.score_name
         self.do_lower_case = args.do_lower_case
         self.max_seq_length = args.max_seq_length
+        self.loss_weight_type = args.loss_weight_type
         self.special_tokens_count = 2
         self.corpus = args.corpus
         
@@ -65,14 +66,30 @@ class LevelEstimaterBase(pl.LightningModule):
 
     def precompute_loss_weights(self, epsilon=1e-5):
         train_levels, _ = read_corpus(self.corpus_path + '/train.tsv', self.num_labels, self.score_name, self.corpus)
-
-        train_sentlv_ratio = np.array([np.sum(train_levels == lv) for lv in range(self.CEFR_lvs)])
-        train_sentlv_ratio = train_sentlv_ratio / np.sum(train_sentlv_ratio)
-        train_sentlv_weights = np.power(train_sentlv_ratio, self.alpha) / np.sum(
-            np.power(train_sentlv_ratio, self.alpha)) / (train_sentlv_ratio + epsilon)
-        print("Loss Weight: ", train_sentlv_weights)
-        return torch.Tensor(train_sentlv_weights)
-
+        train_levels_per_cls = np.array([np.sum(train_levels == lv) for lv in range(self.CEFR_lvs)])
+        print("Number of class", self.num_labels, self.CEFR_lvs)
+        print("train_levels_per_cls", train_levels_per_cls)
+        
+        if self.loss_weight_type == 1:
+            train_levels_ratio = train_levels_per_cls / np.sum(train_levels_per_cls)
+            train_levels_weights = np.power(train_levels_ratio, self.alpha) / np.sum(
+                np.power(train_levels_ratio, self.alpha)) / (train_levels_ratio + epsilon)
+        elif self.loss_weight_type == 2:
+            n_samples = len(train_levels)
+            train_levels_weights = np.power(n_samples, alpha) / np.power(train_levels_per_cls, alpha)
+        elif self.loss_weight_type == 3:
+            effective_num = 1.0 - np.power(self.alpha, train_levels_per_cls)
+            print("effective_num ", effective_num)
+            train_levels_weights = (1.0 - self.alpha) / np.array(effective_num)
+            train_levels_weights = train_levels_weights / np.sum(train_levels_weights) * int(self.CEFR_lvs)
+        elif self.loss_weight_type == 4:
+            effective_num = 1.0 - np.power(self.alpha, train_levels_per_cls)
+            print("effective_num ", effective_num)
+            train_levels_weights = (1.0 - self.alpha) / np.array(effective_num)
+        
+        print("Loss Weight: ", train_levels_weights)
+        return torch.Tensor(train_levels_weights)
+    
     def encode(self, batch):
         outputs = self.lm(batch['input_ids'], attention_mask=batch['attention_mask'], output_hidden_states=True)
         return outputs.hidden_states[self.lm_layer], None

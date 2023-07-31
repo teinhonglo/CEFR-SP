@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_root=../exp-speaking/icnale/trans_stt_whisper_large
+exp_root=../exp-speaking/icnale/smil_trans_stt_whisper_large
 special_tag=""
 
 . ./parse_options.sh

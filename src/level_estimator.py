@@ -18,6 +18,7 @@ LevelEstimaterContrastive,
 LevelEstimaterContrastiveSED, 
 LevelEstimaterContrastiveDot,
 LevelEstimaterSContrastive,
+LevelEstimaterSContrastive2,
 )
 from baseline import BaselineClassification
 from model_base import CEFRDataset
@@ -30,11 +31,13 @@ parser.add_argument('--num_labels', help='number of attention heads', type=int, 
 parser.add_argument('--alpha', help='weighing factor', type=float, default=0.2)
 parser.add_argument('--num_prototypes', help='number of prototypes', type=int, default=3)
 parser.add_argument('--init_prototypes', help='initializing prototypes', type=str, default="pretrained")
+parser.add_argument('--dist', help='similarity function for prototypes', type=str, default="cos")
 parser.add_argument('--model', help='Pretrained model', type=str, default='bert-base-cased')
 parser.add_argument('--pretrained', help='Pretrained level estimater', type=str, default=None)
 parser.add_argument('--type', help='Level estimater type', type=str, required=True,
-                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'contrastive', 'contrastive_sed', 'contrastive_dot', 'scontrastive', 'corn'])
+                    choices=['baseline_reg', 'baseline_cls', 'regression', 'classification', 'corn', 'contrastive', 'contrastive_sed', 'contrastive_dot', 'scontrastive'])
 parser.add_argument('--with_loss_weight', action='store_true')
+parser.add_argument('--loss_weight_type', default=1, type=int)
 parser.add_argument('--do_lower_case', action='store_true')
 parser.add_argument('--lm_layer', help='number of attention heads', type=int, default=-1)
 parser.add_argument('--batch', help='Batch size', type=int, default=128)
@@ -111,6 +114,10 @@ if __name__ == '__main__':
     )
     # swa_callback = StochasticWeightAveraging(swa_epoch_start=3)
     lr_monitor = LearningRateMonitor(logging_interval='step')
+    if args.do_test:
+        strict = True
+    else:
+        strict = False
 
     if args.type in ['baseline_reg', 'baseline_cls']:
         lv_estimater = BaselineClassification(args.data, args.test, args.model, args.type, args.attach_wlv,
@@ -125,7 +132,7 @@ if __name__ == '__main__':
 
     elif args.type in ['regression', 'classification']:
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterClassification.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterClassification.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                              test_corpus_path=args.test,
                                                                              pretrained_model=args.model,
                                                                              problem_type=args.type, 
@@ -160,7 +167,7 @@ if __name__ == '__main__':
                                                     args=args)
     elif args.type in ['corn']:
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterCORN.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterCORN.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                              test_corpus_path=args.test,
                                                                              pretrained_model=args.model,
                                                                              problem_type=args.type, 
@@ -195,7 +202,7 @@ if __name__ == '__main__':
                                                     args=args)                                                    
     elif args.type == 'contrastive':
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterContrastive.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterContrastive.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                           test_corpus_path=args.test,
                                                                           pretrained_model=args.model,
                                                                           problem_type=args.type,
@@ -232,7 +239,7 @@ if __name__ == '__main__':
                                                  args=args)
     elif args.type == 'contrastive_sed':
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterContrastiveSED.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterContrastiveSED.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                           test_corpus_path=args.test,
                                                                           pretrained_model=args.model,
                                                                           problem_type=args.type,
@@ -269,7 +276,7 @@ if __name__ == '__main__':
                                                  args=args)
     elif args.type == 'contrastive_dot':
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterContrastiveDot.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterContrastiveDot.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                           test_corpus_path=args.test,
                                                                           pretrained_model=args.model,
                                                                           problem_type=args.type,
@@ -306,7 +313,7 @@ if __name__ == '__main__':
                                                  args=args)                                                                                            
     elif args.type == 'scontrastive':
         if args.pretrained is not None:
-            lv_estimater = LevelEstimaterSContrastive.load_from_checkpoint(args.pretrained, corpus_path=args.data,
+            lv_estimater = LevelEstimaterSContrastive.load_from_checkpoint(args.pretrained, strict=strict, corpus_path=args.data,
                                                                           test_corpus_path=args.test,
                                                                           pretrained_model=args.model,
                                                                           problem_type=args.type,

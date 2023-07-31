@@ -7,6 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import csv
 import sys
+from local.nlp_models import NlpModel
 
 class TextDataset(torch.utils.data.Dataset):
     def __init__(self, encodings):
@@ -21,15 +22,13 @@ class TextDataset(torch.utils.data.Dataset):
         return self.data_len
 
 class CEFRDataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, levels, num_classes=5):
+    def __init__(self, encodings, levels):
         self.encodings = encodings
         self.labels = levels
-        self.num_classes = num_classes
 
     def __getitem__(self, idx):
         item = {key: val[idx].clone().detach() for key, val in self.encodings.items()}
         item['labels'] = self.labels[idx].clone().detach()
-        label = item['labels']
         return item
 
     def __len__(self):
@@ -49,6 +48,7 @@ class ConcatDataset(torch.utils.data.Dataset):
 
 def read_corpus(path, num_labels, score_name, corpus="teemi"):
     ids, prompts, levels, sents, wav_paths, extra_embs = [], [], [], [], [], []
+    #nlp_model = NlpModel()
 
     lines = _read_tsv(path)
     for i, line in enumerate(lines):

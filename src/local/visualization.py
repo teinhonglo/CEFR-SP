@@ -93,7 +93,7 @@ for score in list(kfold_info.keys()):
             sns.heatmap(data=conf_mat_prec_df, annot=conf_mat_df, fmt='g')
             plt.xlabel("Predictions")
             plt.ylabel("Annotations")
-            plt.savefig(png_name)
+            plt.savefig(png_name, pad_inches=0)
             plt.clf()
             
             #conf_mat_prec_df.to_excel(excel_name)

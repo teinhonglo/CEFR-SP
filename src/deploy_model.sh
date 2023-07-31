@@ -1,6 +1,6 @@
 #!/bin/bash
 
-exp_root=../exp-speaking/teemi-tb1p1/0309_trans_stt_tov
+exp_root=../exp-speaking/teemi-tb1p1/0606_trans_stt_tov
 exp_tag=level_estimator_contrastive_num_prototypes3_loss_weight_alpha0.2_lcase_sentence-transformers-all-mpnet-base-v2_val_score-max_b8g4_lr5.0e-5_drop0.0
 sys_tag=a01
 sys_root=/share/nas165/teinhonglo/github_repo/grading-system/models/graders/cefr_sp

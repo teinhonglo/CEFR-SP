@@ -62,7 +62,7 @@ for score in list(kfold_info.keys()):
             if anno_type == "anno":
                 y_true = np.digitize(y_true, all_bins)
                 y_pred = np.digitize(y_pred, all_bins)
-                labels = ["A1","A2","B1_0","B1_1","C"]
+                labels = ["A2","B1_1","B1_2", "B2", "native"]
             
             conf_mat = confusion_matrix(y_true, y_pred, labels=range(len(labels)))
             row_sum = np.sum(conf_mat, axis = 1)
@@ -75,7 +75,7 @@ for score in list(kfold_info.keys()):
             sns.heatmap(data=conf_mat_prec_df, annot=conf_mat_df, fmt='g')
             plt.xlabel("Predictions")
             plt.ylabel("Annotations")
-            plt.savefig(png_name)
+            plt.savefig(png_name, pad_inches=0)
             plt.clf()
             
             #conf_mat_prec_df.to_excel(excel_name)

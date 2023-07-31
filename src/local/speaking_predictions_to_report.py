@@ -208,7 +208,7 @@ for score in scores:
     with pd.ExcelWriter(os.path.join(result_dir, "kfold_detail.xlsx")) as writer:
         for f in list(kfold_info[score].keys()):
             df = pd.DataFrame(kfold_info[score][f])
-            df.to_excel(writer, sheet_name=f)   
+            df.to_excel(writer, sheet_name=f, index=False) 
     
     ave_losses = {k:0 for k in list(total_losses[score][n_folds[0]]["origin"].keys())}
     df_losses = {k:[] for k in list(total_losses[score][n_folds[0]]["origin"].keys())}

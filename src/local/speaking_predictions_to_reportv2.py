@@ -42,6 +42,11 @@ parser.add_argument("--scores",
                     default="content pronunciation vocabulary",
                     type=str)
 
+parser.add_argument("--scoring_type",
+                    default="default",
+                    choices=["default", "only_ptj", "only_smk", "seen_spk", "unseen_spk"],
+                    type=str)
+
 args = parser.parse_args()
 
 
@@ -68,6 +73,7 @@ def filled_csv(csv_dict, result_root, score, nf, text_ids, version_dir):
 def evaluation(total_losses_score_nf, evaluate_dict, target_score="organization", np_bins=None):
     # 1. origin
     # MSE, PCC, within0.5, within1.0
+    all_text_ids = []
     all_score_preds = []
     all_score_annos = []
     total_losses_score_nf["origin"] = {}
@@ -75,6 +81,7 @@ def evaluation(total_losses_score_nf, evaluate_dict, target_score="organization"
     for text_id, scores_info in evaluate_dict.items(): 
         pred_score = float(scores_info["pred"][target_score])
         anno_score = float(scores_info["anno"][target_score])
+        all_text_ids.append(text_id)
         all_score_preds.append(pred_score)
         all_score_annos.append(anno_score)
     
@@ -87,7 +94,7 @@ def evaluation(total_losses_score_nf, evaluate_dict, target_score="organization"
     
     compute_metrics(total_losses_score_nf["origin"], all_score_preds, all_score_annos)
      
-    return total_losses_score_nf, all_score_preds, all_score_annos
+    return total_losses_score_nf, all_score_preds, all_score_annos, all_text_ids
 
 
 data_dir = args.data_dir
@@ -117,14 +124,15 @@ for nf in n_folds:
             text_id, text = row[columns["text_id"]], row[columns["text"]]
              
             text_ids[nf].append(text_id)
-            csv_dict[nf][text_id]["anno"] = { s: float(row[columns[s]]) for s in scores }        
+            csv_dict[nf][text_id]["anno"] = { s: float(row[columns[s]]) for s in scores }
             csv_dict[nf][text_id]["pred"] = { s: float(row[columns[s]]) for s in scores }
+            
 
 # fiiled csv_dict
 total_losses = defaultdict(dict)
 total_df_losses = defaultdict(dict)
 average_losses = defaultdict(dict)
-infos = ["anno", "pred"]
+infos = ["text_id", "anno", "pred"]
 
 scores_ = []
 for nf in n_folds:
@@ -148,10 +156,12 @@ all_bins = np.array([1.5, 2.5, 3.5, 4.5])
 for score in scores: 
     for nf in n_folds: 
         total_losses[score][nf] = {}
-        total_losses[score][nf], all_score_preds, all_score_annos = evaluation(total_losses[score][nf], csv_dict[nf], score, all_bins)
+        total_losses[score][nf], all_score_preds, all_score_annos, all_text_ids = evaluation(total_losses[score][nf], csv_dict[nf], score, all_bins)
         kfold_dir = os.path.join(result_root, score, nf) 
+        kfold_info[score][nf]["text_id"] += all_text_ids
         kfold_info[score][nf]["anno"] += all_score_annos.tolist()
         kfold_info[score][nf]["pred"] += all_score_preds.tolist() 
+        kfold_info[score]["All"]["text_id"] += all_text_ids
         kfold_info[score]["All"]["anno"] += all_score_annos.tolist()
         kfold_info[score]["All"]["pred"] += all_score_preds.tolist()
         #print(nf, len(kfold_info[score][nf]["pred"]))
@@ -175,4 +185,4 @@ for score in scores:
     with pd.ExcelWriter(os.path.join(result_dir, "kfold_detail.xlsx")) as writer:
         for f in list(kfold_info[score].keys()):
             df = pd.DataFrame(kfold_info[score][f])
-            df.to_excel(writer, sheet_name=f) 
+            df.to_excel(writer, sheet_name=f, index=False) 

@@ -8,6 +8,7 @@ from util import mean_pooling, token_embeddings_filtering_padding, read_corpus, 
 import stanza
 from metrics_np import compute_metrics
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
 class LevelEstimaterBase(pl.LightningModule):
@@ -183,15 +184,19 @@ class LevelEstimaterBase(pl.LightningModule):
             with open(self.logger.log_dir + '/' + prefix + 'entities.txt', 'w') as file:
                 entities_info = '\n'.join(['{}\t{}'.format(str(i), str(levels[target])) for i, target in enumerate(gold_labels)])
                 file.write(entities_info)
-
-            model = TSNE(n_components=2)
-            tsne_features = model.fit_transform(outputs_mean)
+            
+            #pca = PCA(n_components=50)
+            #X_pca = pca.fit_transform(outputs_mean)
+            X_pca = np.array(outputs_mean)
+            
+            model = TSNE(n_components=2, init="pca", learning_rate="auto", verbose=1, perplexity=30, n_iter=5000, random_state=66)
+            tsne_features = model.fit_transform(X_pca)
             plt.clf()
 
             for i in range(len(levels)):
                 lv_idx = np.where(gold_labels == i)
                 plt.scatter(tsne_features[lv_idx, 0], tsne_features[lv_idx, 1], c=colors[i], label=levels[i])
-            plt.legend()
+            plt.legend(loc="upper right")
             plt.savefig(self.logger.log_dir + '/' + prefix + 'tsne_plot_gold_labels.png')
 
             plt.clf()
